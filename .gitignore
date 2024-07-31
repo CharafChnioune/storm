@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# mac
+# macOS
 .DS_Store
 
 # Other
@@ -24,3 +24,7 @@ secrets.toml
 *.log
 */assertion.log
 *results/
+chroma_db/
+frontend/DEMO_WORKING_DIR/
+frontend/data/
+frontend/data/tweedelijns_melding324.csv
