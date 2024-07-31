@@ -24,7 +24,7 @@ secrets.toml
 *.log
 */assertion.log
 *results/
-chroma_db/
+frontend/demo_light/chroma_db/
 frontend/DEMO_WORKING_DIR/
 frontend/data/
 frontend/data/tweedelijns_melding324.csv
