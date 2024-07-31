@@ -9,7 +9,7 @@ import dspy
 from .callback import BaseCallbackHandler
 from .persona_generator import StormPersonaGenerator
 from .storm_dataclass import DialogueTurn, StormInformationTable, StormInformation
-from ...interface import KnowledgeCurationModule, Retriever
+from ...interface import KnowledgeCurationModule, Retriever, CombinedRetriever
 from ...utils import ArticleTextProcessing
 
 try:
@@ -170,15 +170,30 @@ class TopicExpert(dspy.Module):
             queries = self.generate_queries(topic=topic, question=question).queries
             queries = [q.replace('-', '').strip().strip('"').strip('"').strip() for q in queries.split('\n')]
             queries = queries[:self.max_search_queries]
+
             # Search
-            searched_results: List[StormInformation] = self.retriever.retrieve(list(set(queries)),
-                                                                               exclude_urls=[ground_truth_url])
+            raw_results = self.retriever.retrieve(list(set(queries)), exclude_urls=[ground_truth_url])
+            
+            # Convert results to StormInformation objects if necessary
+            searched_results = []
+            for result in raw_results:
+                if isinstance(result, dict):
+                    searched_results.append(StormInformation.from_dict(result))
+                elif isinstance(result, StormInformation):
+                    searched_results.append(result)
+                else:
+                    logging.warning(f"Unexpected result type: {type(result)}. Skipping this result.")
+
             if len(searched_results) > 0:
                 # Evaluate: Simplify this part by directly using the top 1 snippet.
                 info = ''
                 for n, r in enumerate(searched_results):
-                    info += '\n'.join(f'[{n + 1}]: {s}' for s in r.snippets[:1])
-                    info += '\n\n'
+                    if isinstance(r, StormInformation) and r.snippets:
+                        info += f'[{n + 1}]: {r.snippets[0]}\n\n'
+                    elif isinstance(r, dict) and 'snippets' in r and r['snippets']:
+                        info += f'[{n + 1}]: {r["snippets"][0]}\n\n'
+                    else:
+                        logging.warning(f"Result {n} does not have expected 'snippets' attribute or is empty.")
 
                 info = ArticleTextProcessing.limit_word_count_preserve_newline(info, 1000)
 
@@ -193,8 +208,7 @@ class TopicExpert(dspy.Module):
                 answer = 'Sorry, I cannot find information for this question. Please ask another question.'
 
         return dspy.Prediction(queries=queries, searched_results=searched_results, answer=answer)
-
-
+    
 class StormKnowledgeCurationModule(KnowledgeCurationModule):
     """
     The interface for knowledge curation stage. Given topic, return collected information.
@@ -296,6 +310,10 @@ class StormKnowledgeCurationModule(KnowledgeCurationModule):
         Returns:
             collected_information: collected information in InformationTable type.
         """
+
+        # Log active retrievers if using CombinedRetriever
+        if isinstance(self.retriever, CombinedRetriever):
+            logging.info(f"Active retrievers: {', '.join(self.retriever.active_retrievers)}")
 
         # identify personas
         callback_handler.on_identify_perspective_start()

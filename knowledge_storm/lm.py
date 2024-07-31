@@ -1,5 +1,7 @@
 import logging
 import os
+import time
+from requests.exceptions import Timeout
 import random
 import threading
 from typing import Optional, Literal, Any
@@ -405,14 +407,35 @@ class VLLMClient(dspy.HFClientVLLM):
 class OllamaClient(dspy.OllamaLocal):
     """A wrapper class for dspy.OllamaClient."""
 
-    def __init__(self, model, port, url="http://localhost", **kwargs):
+    def __init__(self, model, port, url="http://localhost", timeout_s=300, max_retries=3, retry_delay=5, **kwargs):
         """Copied from dspy/dsp/modules/hf_client.py with the addition of storing additional kwargs."""
         # Check if the URL has 'http://' or 'https://'
         if not url.startswith("http://") and not url.startswith("https://"):
             url = "http://" + url
-        super().__init__(model=model, base_url=f"{url}:{port}", **kwargs)
+        super().__init__(model=model, base_url=f"{url}:{port}", timeout_s=timeout_s, **kwargs)
         # Store additional kwargs for the generate method.
         self.kwargs = {**self.kwargs, **kwargs}
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+
+    def basic_request(self, prompt: str, **kwargs):
+        for attempt in range(self.max_retries):
+            try:
+                return super().basic_request(prompt, **kwargs)
+            except Timeout:
+                if attempt < self.max_retries - 1:
+                    print(f"Timeout occurred. Retrying in {self.retry_delay} seconds...")
+                    time.sleep(self.retry_delay)
+                else:
+                    print("Max retries reached. Unable to complete the request.")
+                    raise
+
+    def request(self, prompt: str, **kwargs):
+        """Wrapper for requesting completions from the Ollama model."""
+        if "model_type" in kwargs:
+            del kwargs["model_type"]
+
+        return self.basic_request(prompt, **kwargs)
     
 
 class TGIClient(dspy.HFClientTGI):

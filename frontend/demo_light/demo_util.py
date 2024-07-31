@@ -1,9 +1,11 @@
 import base64
 import datetime
+import logging
 import json
 import os
 import re
 from typing import Optional
+from pathlib import Path
 
 import markdown
 import pytz
@@ -15,7 +17,9 @@ import streamlit as st
 # sys.path.append('../../')
 from knowledge_storm import STORMWikiRunnerArguments, STORMWikiRunner, STORMWikiLMConfigs
 from knowledge_storm.lm import OllamaClient
-from knowledge_storm.rm import YouRM
+from langchain_community.embeddings import OllamaEmbeddings
+from knowledge_storm.storm_wiki.modules.retriever import CombinedRetriever, StormRetriever
+from knowledge_storm.rm import YouRM, BingSearch, VectorRM
 from knowledge_storm.storm_wiki.modules.callback import BaseCallbackHandler
 from stoc import stoc
 
@@ -495,19 +499,30 @@ def clear_other_page_session_state(page_index: Optional[int]):
     for key in set(keys_to_delete):
         del st.session_state[key]
 
+def get_demo_dir():
+    return str(Path(__file__).parent.parent)
 
-def set_storm_runner():
+def set_storm_runner(ollama_model_name='llama3.1:8b-instruct-fp16', embedding_model_name='Losspost/stella_en_1.5b_v5:latest'):
     current_working_dir = os.path.join(get_demo_dir(), "DEMO_WORKING_DIR")
     if not os.path.exists(current_working_dir):
         os.makedirs(current_working_dir)
 
     # configure STORM runner
     llm_configs = STORMWikiLMConfigs()
-    
+
     # Initialize all required language models
-    ollama_client = OllamaClient(model='llama3.1:8b-instruct-fp16', port=11434, url="http://localhost",
-                                 api_provider='ollama', max_tokens=128000, temperature=0.3, top_p=0.9)
-    
+    ollama_client = OllamaClient(
+        model=ollama_model_name, 
+        port=11434, 
+        url="http://localhost",
+        timeout_s=300,  # 5 minuten timeout
+        max_retries=3,  # Maximaal 3 pogingen
+        retry_delay=5,   # 5 seconden wachttijd tussen pogingen
+        api_provider='ollama', 
+        max_tokens=128000, 
+        temperature=0.3, 
+        top_p=0.9
+    )
     llm_configs.set_question_asker_lm(ollama_client)
     llm_configs.set_conv_simulator_lm(ollama_client)
     llm_configs.set_outline_gen_lm(ollama_client)
@@ -522,9 +537,36 @@ def set_storm_runner():
         retrieve_top_k=5
     )
 
-    rm = YouRM(ydc_api_key=st.secrets['YDC_API_KEY'], k=engine_args.search_top_k)
+    # Initialize embeddings
+    embeddings = OllamaEmbeddings(model=embedding_model_name)
 
-    runner = STORMWikiRunner(engine_args, llm_configs, rm)
+    # Initialize retrievers
+    you_rm = YouRM(ydc_api_key=st.secrets['YDC_API_KEY'], k=engine_args.search_top_k)
+    bing_search = BingSearch(bing_search_api_key=st.secrets.get('BING_SEARCH_API_KEY'), k=engine_args.search_top_k)
+    vector_rm = VectorRM(embeddings=embeddings, k=engine_args.search_top_k)
+
+    # Load CSV file into VectorRM
+    csv_path = os.path.join(get_demo_dir(), "data", "tweedelijns_melding324.csv")
+    if os.path.exists(csv_path):
+        vector_rm.add_csv(csv_path)
+        logging.info(f"CSV-bestand geladen in VectorRM: {csv_path}")
+    else:
+        logging.warning(f"CSV-bestand niet gevonden: {csv_path}")
+
+    # Initialize CombinedRetriever
+    combined_retriever = CombinedRetriever({
+        'you': you_rm,
+        'bing': bing_search,
+        'vector': vector_rm
+    }, k=engine_args.search_top_k)
+
+    # Set active retrievers (you can modify this as needed)
+    combined_retriever.set_active_retrievers(['you', 'bing', 'vector'])
+
+    # Initialize StormRetriever with CombinedRetriever
+    storm_retriever = StormRetriever(rm=combined_retriever, k=engine_args.retrieve_top_k)
+
+    runner = STORMWikiRunner(engine_args, llm_configs, storm_retriever)
     st.session_state["runner"] = runner
 
 

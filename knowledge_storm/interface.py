@@ -3,7 +3,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 
 logging.basicConfig(level=logging.INFO, format='%(name)s : %(levelname)-8s : %(message)s')
 logger = logging.getLogger(__name__)
@@ -207,6 +207,52 @@ class Retriever(ABC):
         """
         pass
 
+class CombinedRetriever(Retriever):
+    """
+    A retriever that combines multiple retrievers and manages their usage.
+    """
+
+    def __init__(self, retrievers: Dict[str, Retriever], search_top_k: int):
+        super().__init__(search_top_k)
+        self.retrievers = retrievers
+        self.active_retrievers = set(self.retrievers.keys())
+
+    def set_active_retrievers(self, retriever_names: List[str]):
+        self.active_retrievers = set(retriever_names) & set(self.retrievers.keys())
+
+    def add_retriever(self, name: str, retriever: Retriever):
+        self.retrievers[name] = retriever
+        self.active_retrievers.add(name)
+
+    def remove_retriever(self, name: str):
+        if name in self.retrievers:
+            del self.retrievers[name]
+            self.active_retrievers.discard(name)
+
+    def retrieve(self, query: Union[str, List[str]], **kwargs) -> List[Any]:
+        combined_results = []
+        for name in self.active_retrievers:
+            retriever = self.retrievers[name]
+            try:
+                results = retriever.retrieve(query, **kwargs)
+                combined_results.extend(results)
+            except Exception as e:
+                logging.error(f"Error retrieving from {name}: {str(e)}")
+
+        return combined_results[:self.search_top_k]
+
+    def update_search_top_k(self, k: int):
+        super().update_search_top_k(k)
+        for retriever in self.retrievers.values():
+            retriever.update_search_top_k(k)
+
+    def collect_and_reset_rm_usage(self):
+        combined_usage = {}
+        for name, retriever in self.retrievers.items():
+            usage = retriever.collect_and_reset_rm_usage()
+            for model_name, query_cnt in usage.items():
+                combined_usage[f"{name}_{model_name}"] = query_cnt
+        return combined_usage
 
 class KnowledgeCurationModule(ABC):
     """
