@@ -1,5 +1,6 @@
 import logging
 import re
+import random
 from typing import Union, List
 
 import dspy
@@ -103,15 +104,15 @@ class StormPersonaGenerator():
         self.create_writer_with_persona = CreateWriterWithPersona(engine=engine)
         logger.info("StormPersonaGenerator geïnitialiseerd")
 
-    def generate_persona(self, topic: str, max_num_persona: int = 3) -> List[str]:
+    def generate_persona(self, topic: str, num_persona: int = 5) -> List[str]:
         """Genereert een lijst van persona's op basis van het opgegeven onderwerp."""
-        logger.info(f"Start persona generatie voor onderwerp: {topic}, max aantal: {max_num_persona}")
+        logger.info(f"Start persona generatie voor onderwerp: {topic}, gewenst aantal: {num_persona}")
         personas = self.create_writer_with_persona(topic=topic)
         default_persona = 'Basic fact writer: Basic fact writer focusing on broadly covering the basic facts about the topic.'
-        considered_personas = [default_persona] + personas.personas[:max_num_persona]
+        considered_personas = [default_persona] + personas.personas[:num_persona-1]  # -1 omdat we al een default persona hebben
         logger.info(f"Aantal gegenereerde persona's (inclusief default): {len(considered_personas)}")
         return considered_personas
-
+    
 # Voeg een handler toe om logs naar een bestand te schrijven
 file_handler = logging.FileHandler('storm_persona_generation.log')
 file_handler.setLevel(logging.INFO)

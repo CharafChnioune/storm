@@ -8,6 +8,10 @@ from pages_util import MyArticles, CreateNewArticle
 from streamlit_float import *
 from streamlit_option_menu import option_menu
 
+import streamlit as st
+
+OLLAMA_MODEL_NAME = st.secrets["OLLAMA_MODEL_NAME"]
+EMBEDDING_MODEL_NAME = st.secrets["EMBEDDING_MODEL_NAME"]
 
 def main():
     global database
@@ -54,7 +58,6 @@ def main():
         elif menu_selection == "Create New Article":
             demo_util.clear_other_page_session_state(page_index=3)
             CreateNewArticle.create_new_article_page()
-
 
 if __name__ == "__main__":
     main()

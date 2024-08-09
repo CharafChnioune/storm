@@ -3,7 +3,8 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, Tuple
+from knowledge_storm.storm_wiki.modules.retriever import YouRMRetriever, VectorRMRetriever
 
 logging.basicConfig(level=logging.INFO, format='%(name)s : %(levelname)-8s : %(message)s')
 logger = logging.getLogger(__name__)
@@ -209,49 +210,95 @@ class Retriever(ABC):
 
 class CombinedRetriever(Retriever):
     """
-    A retriever that combines multiple retrievers and manages their usage.
+    A retriever that combines YouRMRetriever and VectorRMRetriever.
     """
 
-    def __init__(self, retrievers: Dict[str, Retriever], search_top_k: int):
+    def __init__(self, you_retriever: 'YouRMRetriever', vector_retriever: 'VectorRMRetriever', search_top_k: int):
         super().__init__(search_top_k)
-        self.retrievers = retrievers
-        self.active_retrievers = set(self.retrievers.keys())
+        self.you_retriever = you_retriever
+        self.vector_retriever = vector_retriever
+        self.active_retrievers = {'you': True, 'vector': True}
 
     def set_active_retrievers(self, retriever_names: List[str]):
-        self.active_retrievers = set(retriever_names) & set(self.retrievers.keys())
-
-    def add_retriever(self, name: str, retriever: Retriever):
-        self.retrievers[name] = retriever
-        self.active_retrievers.add(name)
-
-    def remove_retriever(self, name: str):
-        if name in self.retrievers:
-            del self.retrievers[name]
-            self.active_retrievers.discard(name)
+        """
+        Set which retrievers are active.
+        
+        Args:
+            retriever_names (List[str]): List of retriever names to activate. 
+                                         Should be 'you', 'vector', or both.
+        """
+        self.active_retrievers = {
+            'you': 'you' in retriever_names,
+            'vector': 'vector' in retriever_names
+        }
+        logger.info(f"Active retrievers set to: {self.active_retrievers}")
 
     def retrieve(self, query: Union[str, List[str]], **kwargs) -> List[Any]:
+        """
+        Retrieve information using active retrievers.
+
+        Args:
+            query (Union[str, List[str]]): The query or queries to retrieve information for.
+            **kwargs: Additional keyword arguments for the retrieve methods.
+
+        Returns:
+            List[Any]: Combined results from active retrievers, limited by search_top_k.
+        """
         combined_results = []
-        for name in self.active_retrievers:
-            retriever = self.retrievers[name]
+        
+        if self.active_retrievers['you']:
             try:
-                results = retriever.retrieve(query, **kwargs)
-                combined_results.extend(results)
+                you_results = self.you_retriever.retrieve(query, **kwargs)
+                combined_results.extend(you_results)
+                logger.debug(f"YouRMRetriever retrieved {len(you_results)} results")
             except Exception as e:
-                logging.error(f"Error retrieving from {name}: {str(e)}")
+                logger.error(f"Error retrieving from YouRMRetriever: {str(e)}")
+
+        if self.active_retrievers['vector']:
+            try:
+                vector_results = self.vector_retriever.retrieve(query, **kwargs)
+                combined_results.extend(vector_results)
+                logger.debug(f"VectorRMRetriever retrieved {len(vector_results)} results")
+            except Exception as e:
+                logger.error(f"Error retrieving from VectorRMRetriever: {str(e)}")
+
+        # Sort results if they have a 'score' attribute
+        if combined_results and hasattr(combined_results[0], 'score'):
+            combined_results.sort(key=lambda x: x.score, reverse=True)
 
         return combined_results[:self.search_top_k]
 
     def update_search_top_k(self, k: int):
+        """
+        Update the search_top_k value for this retriever and its sub-retrievers.
+        
+        Args:
+            k (int): The new search_top_k value.
+        """
         super().update_search_top_k(k)
-        for retriever in self.retrievers.values():
-            retriever.update_search_top_k(k)
+        self.you_retriever.update_search_top_k(k)
+        self.vector_retriever.update_search_top_k(k)
+        logger.info(f"search_top_k updated to {k} for CombinedRetriever and sub-retrievers")
 
     def collect_and_reset_rm_usage(self):
+        """
+        Collect and reset usage statistics from active retrievers.
+
+        Returns:
+            Dict: Combined usage statistics from active retrievers.
+        """
         combined_usage = {}
-        for name, retriever in self.retrievers.items():
-            usage = retriever.collect_and_reset_rm_usage()
-            for model_name, query_cnt in usage.items():
-                combined_usage[f"{name}_{model_name}"] = query_cnt
+        if self.active_retrievers['you']:
+            you_usage = self.you_retriever.collect_and_reset_rm_usage()
+            for model_name, query_cnt in you_usage.items():
+                combined_usage[f"you_{model_name}"] = query_cnt
+
+        if self.active_retrievers['vector']:
+            vector_usage = self.vector_retriever.collect_and_reset_rm_usage()
+            for model_name, query_cnt in vector_usage.items():
+                combined_usage[f"vector_{model_name}"] = query_cnt
+
+        logger.debug(f"Collected and reset RM usage: {combined_usage}")
         return combined_usage
 
 class KnowledgeCurationModule(ABC):
@@ -266,15 +313,25 @@ class KnowledgeCurationModule(ABC):
         self.retriever = retriever
 
     @abstractmethod
-    def research(self, topic) -> InformationTable:
+    def research(self, 
+                 topic: str, 
+                 ground_truth_url: str,
+                 callback_handler: Any,
+                 disable_perspective: bool = False,
+                 return_conversation_log: bool = False) -> Union[InformationTable, Tuple[InformationTable, Dict]]:
         """
         Curate information and knowledge for the given topic
 
         Args:
             topic: topic of interest in natural language.
+            ground_truth_url: URL to be excluded from search to avoid ground truth leakage.
+            callback_handler: Handler for callbacks during the research process.
+            disable_perspective: If True, disables perspective-guided question asking.
+            return_conversation_log: If True, returns the conversation log along with the information table.
 
         Returns:
             collected_information: collected information in InformationTable type.
+            conversation_log: (optional) log of the conversation process.
         """
         pass
 

@@ -11,16 +11,15 @@ from .persona_generator import StormPersonaGenerator
 from .storm_dataclass import DialogueTurn, StormInformationTable, StormInformation
 from ...interface import KnowledgeCurationModule, Retriever, CombinedRetriever
 from ...utils import ArticleTextProcessing
+from .retriever import YouRMRetriever, VectorRMRetriever
 
 try:
     from streamlit.runtime.scriptrunner import add_script_run_ctx
-
     streamlit_connection = True
 except ImportError as err:
     streamlit_connection = False
 
-script_dir = os.path.dirname(os.path.abspath(__file__))
-
+logger = logging.getLogger(__name__)
 
 class ConvSimulator(dspy.Module):
     """Simulate a conversation between a Wikipedia writer with specific persona and an expert."""
@@ -64,7 +63,6 @@ class ConvSimulator(dspy.Module):
 
         return dspy.Prediction(dlg_history=dlg_history)
 
-
 class WikiWriter(dspy.Module):
     """Perspective-guided question asking in conversational setup.
 
@@ -95,7 +93,6 @@ class WikiWriter(dspy.Module):
 
         return dspy.Prediction(question=question)
 
-
 class AskQuestion(dspy.Signature):
     """You are an experienced Wikipedia writer. You are chatting with an expert to get information for the topic you want to contribute. Ask good questions to get more useful information relevant to the topic.
     When you have no more question to ask, say "Thank you so much for your help!" to end the conversation.
@@ -104,7 +101,6 @@ class AskQuestion(dspy.Signature):
     topic = dspy.InputField(prefix='Topic you want to write: ', format=str)
     conv = dspy.InputField(prefix='Conversation history:\n', format=str)
     question = dspy.OutputField(format=str)
-
 
 class AskQuestionWithPersona(dspy.Signature):
     """You are an experienced Wikipedia writer and want to edit a specific page. Besides your identity as a Wikipedia writer, you have specific focus when researching the topic.
@@ -117,7 +113,6 @@ class AskQuestionWithPersona(dspy.Signature):
     conv = dspy.InputField(prefix='Conversation history:\n', format=str)
     question = dspy.OutputField(format=str)
 
-
 class QuestionToQuery(dspy.Signature):
     """You want to answer the question using Google search. What do you type in the search box?
         Write the queries you will use in the following format:
@@ -129,7 +124,6 @@ class QuestionToQuery(dspy.Signature):
     topic = dspy.InputField(prefix='Topic you are discussing about: ', format=str)
     question = dspy.InputField(prefix='Question you want to answer: ', format=str)
     queries = dspy.OutputField(format=str)
-
 
 class AnswerQuestion(dspy.Signature):
     """You are an expert who can use information effectively. You are chatting with a Wikipedia writer who wants to write a Wikipedia page on topic you know. You have gathered the related information and will now use the information to form a response.
@@ -144,7 +138,6 @@ class AnswerQuestion(dspy.Signature):
         format=str
     )
 
-
 class TopicExpert(dspy.Module):
     """Answer questions using search-based retrieval and answer generation. This module conducts the following steps:
     1. Generate queries from the question.
@@ -158,7 +151,6 @@ class TopicExpert(dspy.Module):
         super().__init__()
         self.generate_queries = dspy.Predict(QuestionToQuery)
         self.retriever = retriever
-        self.retriever.update_search_top_k(search_top_k)
         self.answer_question = dspy.Predict(AnswerQuestion)
         self.engine = engine
         self.max_search_queries = max_search_queries
@@ -211,62 +203,78 @@ class TopicExpert(dspy.Module):
     
 class StormKnowledgeCurationModule(KnowledgeCurationModule):
     """
-    The interface for knowledge curation stage. Given topic, return collected information.
+    De interface voor de kenniscuratiefase. Gegeven een onderwerp, verzamelt en retourneert deze module informatie.
     """
 
     def __init__(self,
-                 retriever: Retriever,
+                 retriever: CombinedRetriever,
                  persona_generator: Optional[StormPersonaGenerator],
                  conv_simulator_lm: Union[dspy.dsp.LM, dspy.dsp.HFModel],
                  question_asker_lm: Union[dspy.dsp.LM, dspy.dsp.HFModel],
                  max_search_queries_per_turn: int,
                  search_top_k: int,
                  max_conv_turn: int,
-                 max_thread_num: int):
+                 max_thread_num: int,
+                 num_persona: int):
         """
-        Store args and finish initialization.
+        Initialiseert de StormKnowledgeCurationModule met de gegeven parameters.
+
+        Args:
+            retriever: De retriever voor het ophalen van informatie.
+            persona_generator: De generator voor het maken van persona's.
+            conv_simulator_lm: Het taalmodel voor de conversatiesimulator.
+            question_asker_lm: Het taalmodel voor het stellen van vragen.
+            max_search_queries_per_turn: Maximaal aantal zoekopdrachten per beurt.
+            search_top_k: Aantal top zoekresultaten om te overwegen.
+            max_conv_turn: Maximaal aantal beurten in een conversatie.
+            max_thread_num: Maximaal aantal threads voor parallelle uitvoering.
+            num_persona: Aantal persona's om te genereren.
         """
-        self.retriever = retriever
+        super().__init__(retriever)
         self.persona_generator = persona_generator
         self.conv_simulator_lm = conv_simulator_lm
         self.search_top_k = search_top_k
         self.max_thread_num = max_thread_num
-        self.retriever = retriever
+        self.num_persona = num_persona
+        
         self.conv_simulator = ConvSimulator(
             topic_expert_engine=conv_simulator_lm,
             question_asker_engine=question_asker_lm,
-            retriever=retriever,
+            retriever=self.retriever,
             max_search_queries_per_turn=max_search_queries_per_turn,
             search_top_k=search_top_k,
             max_turn=max_conv_turn
         )
 
-    def _get_considered_personas(self, topic: str, max_num_persona) -> List[str]:
-        return self.persona_generator.generate_persona(topic=topic, max_num_persona=max_num_persona)
+    def _get_considered_personas(self, topic: str) -> List[str]:
+        """
+        Genereert een lijst van persona's voor het gegeven onderwerp.
+
+        Args:
+            topic: Het onderwerp waarvoor persona's worden gegenereerd.
+
+        Returns:
+            Een lijst van gegenereerde persona's.
+        """
+        return self.persona_generator.generate_persona(topic=topic, num_persona=self.num_persona)
 
     def _run_conversation(self, conv_simulator, topic, ground_truth_url, considered_personas,
                           callback_handler: BaseCallbackHandler) -> List[Tuple[str, List[DialogueTurn]]]:
         """
-        Executes multiple conversation simulations concurrently, each with a different persona,
-        and collects their dialog histories. The dialog history of each conversation is cleaned
-        up before being stored.
+        Voert meerdere conversatiesimulaties parallel uit, elk met een verschillende persona,
+        en verzamelt hun dialooggeschiedenissen.
 
-        Parameters:
-            conv_simulator (callable): The function to simulate conversations. It must accept four
-                parameters: `topic`, `ground_truth_url`, `persona`, and `callback_handler`, and return
-                an object that has a `dlg_history` attribute.
-            topic (str): The topic of conversation for the simulations.
-            ground_truth_url (str): The URL to the ground truth data related to the conversation topic.
-            considered_personas (list): A list of personas under which the conversation simulations
-                will be conducted. Each persona is passed to `conv_simulator` individually.
-            callback_handler (callable): A callback function that is passed to `conv_simulator`. It
-                should handle any callbacks or events during the simulation.
+        Args:
+            conv_simulator: De functie om conversaties te simuleren.
+            topic: Het onderwerp van de conversatie.
+            ground_truth_url: De URL naar de grondwaarheid gerelateerd aan het gespreksonderwerp.
+            considered_personas: Een lijst van persona's waarvoor de conversatiesimulaties worden uitgevoerd.
+            callback_handler: Een callback-functie voor het afhandelen van gebeurtenissen tijdens de simulatie.
 
         Returns:
-            list of tuples: A list where each tuple contains a persona and its corresponding cleaned
-            dialog history (`dlg_history`) from the conversation simulation.
+            Een lijst van tuples, waarbij elke tuple een persona en zijn bijbehorende opgeschoonde
+            dialooggeschiedenis bevat.
         """
-
         conversations = []
 
         def run_conv(persona):
@@ -283,7 +291,7 @@ class StormKnowledgeCurationModule(KnowledgeCurationModule):
             future_to_persona = {executor.submit(run_conv, persona): persona for persona in considered_personas}
 
             if streamlit_connection:
-                # Ensure the logging context is correct when connecting with Streamlit frontend.
+                # Zorg voor de juiste logging context bij verbinding met Streamlit frontend.
                 for t in executor._threads:
                     add_script_run_ctx(t)
 
@@ -295,45 +303,47 @@ class StormKnowledgeCurationModule(KnowledgeCurationModule):
         return conversations
 
     def research(self,
-                 topic: str,
-                 ground_truth_url: str,
-                 callback_handler: BaseCallbackHandler,
-                 max_perspective: int = 0,
-                 disable_perspective: bool = True,
-                 return_conversation_log=False) -> Union[StormInformationTable, Tuple[StormInformationTable, Dict]]:
+             topic: str,
+             ground_truth_url: str,
+             callback_handler: BaseCallbackHandler,
+             disable_perspective: bool = False,
+             return_conversation_log: bool = False) -> Union[StormInformationTable, Tuple[StormInformationTable, Dict]]:
         """
-        Curate information and knowledge for the given topic
+        Verzamelt informatie en kennis voor het gegeven onderwerp.
 
         Args:
-            topic: topic of interest in natural language.
-        
+            topic: Onderwerp van interesse in natuurlijke taal.
+            ground_truth_url: URL die moet worden uitgesloten van de zoekopdracht om lekkage van de grondwaarheid te voorkomen.
+            callback_handler: Handler voor callbacks tijdens het onderzoeksproces.
+            disable_perspective: Als True, schakelt perspectief-geleide vraagstelling uit.
+            return_conversation_log: Als True, retourneert het gespreklogboek samen met de informatietabel.
+
         Returns:
-            collected_information: collected information in InformationTable type.
+            collected_information: Verzamelde informatie in InformationTable type.
+            conversation_log: (optioneel) Log van het conversatieproces.
         """
-
-        # Log active retrievers if using CombinedRetriever
         if isinstance(self.retriever, CombinedRetriever):
-            logging.info(f"Active retrievers: {', '.join(self.retriever.active_retrievers)}")
+            logging.info(f"Actieve retrievers: {', '.join(self.retriever.active_retrievers)}")
 
-        # identify personas
+        # Identificeer persona's
         callback_handler.on_identify_perspective_start()
-        considered_personas = []
         if disable_perspective:
             considered_personas = [""]
         else:
-            considered_personas = self._get_considered_personas(topic=topic, max_num_persona=max_perspective)
+            considered_personas = self._get_considered_personas(topic=topic)
         callback_handler.on_identify_perspective_end(perspectives=considered_personas)
 
-        # run conversation 
+        # Voer conversatie uit
         callback_handler.on_information_gathering_start()
         conversations = self._run_conversation(conv_simulator=self.conv_simulator,
-                                               topic=topic,
-                                               ground_truth_url=ground_truth_url,
-                                               considered_personas=considered_personas,
-                                               callback_handler=callback_handler)
+                                            topic=topic,
+                                            ground_truth_url=ground_truth_url,
+                                            considered_personas=considered_personas,
+                                            callback_handler=callback_handler)
 
         information_table = StormInformationTable(conversations)
         callback_handler.on_information_gathering_end()
+        
         if return_conversation_log:
             return information_table, StormInformationTable.construct_log_dict(conversations)
         return information_table

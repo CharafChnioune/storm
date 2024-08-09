@@ -4,25 +4,26 @@ import logging
 import json
 import os
 import re
-from typing import Optional
+from typing import Optional, Union, List, Dict
 from pathlib import Path
 
 import markdown
 import pytz
 import streamlit as st
 
-# If you install the source code instead of the `knowledge-storm` package,
-# Uncomment the following lines:
-# import sys
-# sys.path.append('../../')
 from knowledge_storm import STORMWikiRunnerArguments, STORMWikiRunner, STORMWikiLMConfigs
 from knowledge_storm.lm import OllamaClient
-from langchain_community.embeddings import OllamaEmbeddings
-from knowledge_storm.storm_wiki.modules.retriever import CombinedRetriever, StormRetriever
-from knowledge_storm.rm import YouRM, BingSearch, VectorRM
+from langchain_ollama import OllamaEmbeddings
+from knowledge_storm.rm import YouRM, VectorRM
+from knowledge_storm.storm_wiki.modules.retriever import YouRMRetriever, VectorRMRetriever
+from knowledge_storm.storm_wiki.modules.storm_dataclass import StormInformation
 from knowledge_storm.storm_wiki.modules.callback import BaseCallbackHandler
 from stoc import stoc
 
+import streamlit as st
+
+OLLAMA_MODEL_NAME = st.secrets["OLLAMA_MODEL_NAME"]
+EMBEDDING_MODEL_NAME = st.secrets["EMBEDDING_MODEL_NAME"]
 
 class DemoFileIOHelper():
     @staticmethod
@@ -502,7 +503,7 @@ def clear_other_page_session_state(page_index: Optional[int]):
 def get_demo_dir():
     return str(Path(__file__).parent.parent)
 
-def set_storm_runner(ollama_model_name='llama3.1:8b-instruct-fp16', embedding_model_name='Losspost/stella_en_1.5b_v5:latest'):
+def set_storm_runner():
     current_working_dir = os.path.join(get_demo_dir(), "DEMO_WORKING_DIR")
     if not os.path.exists(current_working_dir):
         os.makedirs(current_working_dir)
@@ -512,7 +513,7 @@ def set_storm_runner(ollama_model_name='llama3.1:8b-instruct-fp16', embedding_mo
 
     # Initialize all required language models
     ollama_client = OllamaClient(
-        model=ollama_model_name, 
+        model=OLLAMA_MODEL_NAME, 
         port=11434, 
         url="http://localhost",
         timeout_s=300,  # 5 minuten timeout
@@ -532,41 +533,25 @@ def set_storm_runner(ollama_model_name='llama3.1:8b-instruct-fp16', embedding_mo
     engine_args = STORMWikiRunnerArguments(
         output_dir=current_working_dir,
         max_conv_turn=3,
-        max_perspective=3,
+        num_persona=5,
+        max_search_queries_per_turn=3,
         search_top_k=3,
         retrieve_top_k=5
     )
 
-    # Initialize embeddings
-    embeddings = OllamaEmbeddings(model=embedding_model_name)
+    embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL_NAME)
 
-    # Initialize retrievers
     you_rm = YouRM(ydc_api_key=st.secrets['YDC_API_KEY'], k=engine_args.search_top_k)
-    bing_search = BingSearch(bing_search_api_key=st.secrets.get('BING_SEARCH_API_KEY'), k=engine_args.search_top_k)
     vector_rm = VectorRM(embeddings=embeddings, k=engine_args.search_top_k)
 
-    # Load CSV file into VectorRM
-    csv_path = os.path.join(get_demo_dir(), "data", "tweedelijns_melding324.csv")
-    if os.path.exists(csv_path):
-        vector_rm.add_csv(csv_path)
-        logging.info(f"CSV-bestand geladen in VectorRM: {csv_path}")
-    else:
-        logging.warning(f"CSV-bestand niet gevonden: {csv_path}")
+    data_directory = os.path.join(get_demo_dir(), "data")
+    vector_rm.add_directory(data_directory)
+    logging.info(f"Data directory geladen in VectorRM: {data_directory}")
 
-    # Initialize CombinedRetriever
-    combined_retriever = CombinedRetriever({
-        'you': you_rm,
-        'bing': bing_search,
-        'vector': vector_rm
-    }, k=engine_args.search_top_k)
+    you_retriever = YouRMRetriever(you_rm, k=engine_args.retrieve_top_k)
+    vector_retriever = VectorRMRetriever(vector_rm, k=engine_args.retrieve_top_k)
 
-    # Set active retrievers (you can modify this as needed)
-    combined_retriever.set_active_retrievers(['you', 'bing', 'vector'])
-
-    # Initialize StormRetriever with CombinedRetriever
-    storm_retriever = StormRetriever(rm=combined_retriever, k=engine_args.retrieve_top_k)
-
-    runner = STORMWikiRunner(engine_args, llm_configs, storm_retriever)
+    runner = STORMWikiRunner(engine_args, llm_configs, you_retriever, vector_retriever)
     st.session_state["runner"] = runner
 
 

@@ -12,11 +12,16 @@ from .modules.callback import BaseCallbackHandler
 from .modules.knowledge_curation import StormKnowledgeCurationModule
 from .modules.outline_generation import StormOutlineGenerationModule
 from .modules.persona_generator import StormPersonaGenerator
-from .modules.retriever import StormRetriever
+from .modules.retriever import CombinedRetriever, YouRMRetriever, VectorRMRetriever
 from .modules.storm_dataclass import StormInformationTable, StormArticle
 from ..interface import Engine, LMConfigs
 from ..lm import OpenAIModel
 from ..utils import FileIOHelper, makeStringRed
+
+import streamlit as st
+
+OLLAMA_MODEL_NAME = st.secrets["OLLAMA_MODEL_NAME"]
+EMBEDDING_MODEL_NAME = st.secrets["EMBEDDING_MODEL_NAME"]
 
 # Configureer logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -104,9 +109,9 @@ class STORMWikiRunnerArguments:
         default=3,
         metadata={"help": "Maximum number of questions in conversational question asking."},
     )
-    max_perspective: int = field(
-        default=3,
-        metadata={"help": "Maximum number of perspectives to consider in perspective-guided question asking."},
+    num_persona: int = field(
+        default=5,
+        metadata={"help": "Number of personas to generate for perspective-guided question asking."},
     )
     max_search_queries_per_turn: int = field(
         default=3,
@@ -136,14 +141,15 @@ class STORMWikiRunner(Engine):
     def __init__(self,
                  args: STORMWikiRunnerArguments,
                  lm_configs: STORMWikiLMConfigs,
-                 rm):
+                 you_retriever: YouRMRetriever,
+                 vector_retriever: VectorRMRetriever):
         logger.info("Initialiseren STORMWikiRunner")
         super().__init__(lm_configs=lm_configs)
         self.args = args
         self.lm_configs = lm_configs
 
-        logger.debug(f"Initialiseren StormRetriever met k={self.args.retrieve_top_k}")
-        self.retriever = StormRetriever(rm=rm, k=self.args.retrieve_top_k)
+        logger.debug(f"Initialiseren Retrievers")
+        self.retriever = CombinedRetriever(you_retriever, vector_retriever, search_top_k=self.args.retrieve_top_k)
         
         logger.debug("Initialiseren StormPersonaGenerator")
         storm_persona_generator = StormPersonaGenerator(self.lm_configs.question_asker_lm)
@@ -157,7 +163,8 @@ class STORMWikiRunner(Engine):
             max_search_queries_per_turn=self.args.max_search_queries_per_turn,
             search_top_k=self.args.search_top_k,
             max_conv_turn=self.args.max_conv_turn,
-            max_thread_num=self.args.max_thread_num
+            max_thread_num=self.args.max_thread_num,
+            num_persona=self.args.num_persona
         )
         
         logger.debug("Initialiseren StormOutlineGenerationModule")
@@ -183,15 +190,14 @@ class STORMWikiRunner(Engine):
         self.apply_decorators()
 
     def run_knowledge_curation_module(self,
-                                      ground_truth_url: str = "None",
-                                      callback_handler: BaseCallbackHandler = None) -> StormInformationTable:
+                                    ground_truth_url: str = "None",
+                                    callback_handler: BaseCallbackHandler = None) -> StormInformationTable:
         logger.info(f"Starten knowledge curation module voor topic: {self.topic}")
         information_table, conversation_log = self.storm_knowledge_curation_module.research(
             topic=self.topic,
             ground_truth_url=ground_truth_url,
             callback_handler=callback_handler,
-            max_perspective=self.args.max_perspective,
-            disable_perspective=False,
+            disable_perspective=self.args.disable_perspective,
             return_conversation_log=True
         )
         logger.debug(f"Knowledge curation voltooid. Aantal conversations: {len(conversation_log)}")
@@ -203,6 +209,9 @@ class STORMWikiRunner(Engine):
         raw_search_results_path = os.path.join(self.article_output_dir, 'raw_search_results.json')
         information_table.dump_url_to_info(raw_search_results_path)
         logger.debug(f"Raw search results opgeslagen in: {raw_search_results_path}")
+
+        # Set the embedding_model_name here
+        information_table.embedding_model_name = EMBEDDING_MODEL_NAME
 
         return information_table
 

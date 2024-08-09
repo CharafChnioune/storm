@@ -5,11 +5,16 @@ from collections import OrderedDict
 from typing import Union, Optional, Any, List, Tuple, Dict
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 
+from sklearn.metrics.pairwise import cosine_similarity
+from langchain_ollama import OllamaEmbeddings
 from ...interface import Information, InformationTable, Article, ArticleSectionNode
 from ...utils import ArticleTextProcessing, FileIOHelper
+
+import streamlit as st
+
+OLLAMA_MODEL_NAME = st.secrets["OLLAMA_MODEL_NAME"]
+EMBEDDING_MODEL_NAME = st.secrets["EMBEDDING_MODEL_NAME"]
 
 # Configureer logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -77,11 +82,16 @@ class DialogueTurn:
         })
 
 class StormInformationTable(InformationTable):
-    def __init__(self, conversations=List[Tuple[str, List[DialogueTurn]]]):
+    def __init__(self, conversations=List[Tuple[str, List[DialogueTurn]]], embedding_model_name=None):
         super().__init__()
         self.conversations = conversations
-        self.url_to_info: Dict[str, StormInformation] = StormInformationTable.construct_url_to_info(self.conversations)
-        logger.info(f"StormInformationTable initialized with {len(self.conversations)} conversations")
+        self.url_to_info: Dict[str, StormInformation] = self.construct_url_to_info(self.conversations)
+        self.encoder = None
+        self.collected_urls = []
+        self.collected_snippets = []
+        self.encoded_snippets = None
+        self.embedding_model_name = embedding_model_name or EMBEDDING_MODEL_NAME
+        logger.info(f"StormInformationTable initialized with {len(self.conversations)} conversations and embedding model: {self.embedding_model_name}")
 
     @staticmethod
     def construct_url_to_info(conversations: List[Tuple[str, List[DialogueTurn]]]) -> Dict[str, StormInformation]:
@@ -129,21 +139,28 @@ class StormInformationTable(InformationTable):
 
     def prepare_table_for_retrieval(self):
         logger.info("Preparing table for retrieval")
-        self.encoder = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+        if self.embedding_model_name is None:
+            raise ValueError("embedding_model_name is not set")
+        self.encoder = OllamaEmbeddings(model=self.embedding_model_name)
         self.collected_urls = []
         self.collected_snippets = []
         for url, information in self.url_to_info.items():
             for snippet in information.snippets:
                 self.collected_urls.append(url)
                 self.collected_snippets.append(snippet)
+        if not self.collected_snippets:
+            raise ValueError("Collected snippets is empty. Cannot encode.")
         self.encoded_snippets = self.encoder.encode(self.collected_snippets, show_progress_bar=False)
         logger.debug(f"Prepared {len(self.collected_snippets)} snippets for retrieval")
 
-    def retrieve_information(self, queries: Union[List[str], str], search_top_k) -> List[StormInformation]:
+    def retrieve_information(self, queries: Union[List[str], str], search_top_k, embedding_model_name) -> List[StormInformation]:
         logger.info(f"Retrieving information for {len(queries) if isinstance(queries, list) else 1} queries")
+        if self.encoder is None:
+            self.prepare_table_for_retrieval(embedding_model_name)
+        
         selected_urls = []
         selected_snippets = []
-        if type(queries) is str:
+        if isinstance(queries, str):
             queries = [queries]
         for query in queries:
             encoded_query = self.encoder.encode(query, show_progress_bar=False)

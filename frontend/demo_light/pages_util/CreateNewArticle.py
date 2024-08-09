@@ -75,10 +75,22 @@ def create_new_article_page():
         st_callback_handler = demo_util.StreamlitCallbackHandler(status)
         with status:
             logger.debug("Running STORM for research and outline generation")
+            # Eerst You.com gebruiken
+            st.session_state["runner"].retriever.set_active_retrievers(['you'])
             st.session_state["runner"].run(
                 topic=st.session_state["page3_topic"],
                 do_research=True,
                 do_generate_outline=True,
+                do_generate_article=False,
+                do_polish_article=False,
+                callback_handler=st_callback_handler
+            )
+            # Daarna vector retriever gebruiken
+            st.session_state["runner"].retriever.set_active_retrievers(['vector'])
+            st.session_state["runner"].run(
+                topic=st.session_state["page3_topic"],
+                do_research=True,
+                do_generate_outline=False,
                 do_generate_article=False,
                 do_polish_article=False,
                 callback_handler=st_callback_handler
@@ -97,6 +109,7 @@ def create_new_article_page():
                 "Now I will connect the information I found for your reference. (This may take 4-5 minutes.)") as status:
             st.info('Now I will connect the information I found for your reference. (This may take 4-5 minutes.)')
             logger.debug("Running STORM for article generation and polishing")
+            st.session_state["runner"].retriever.set_active_retrievers(['you', 'vector'])
             st.session_state["runner"].run(topic=st.session_state["page3_topic"], do_research=False,
                                            do_generate_outline=False,
                                            do_generate_article=True, do_polish_article=True, remove_duplicate=False)

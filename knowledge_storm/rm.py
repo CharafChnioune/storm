@@ -6,10 +6,21 @@ import dspy
 import pandas as pd
 import requests
 
+from langchain.document_loaders import (
+    CSVLoader,
+    UnstructuredExcelLoader,
+    UnstructuredWordDocumentLoader,
+    UnstructuredPDFLoader,
+    TextLoader
+)
 from langchain_core.documents import Document
 from langchain_ollama import OllamaEmbeddings
 from langchain_chroma import Chroma
-from .utils import WebPageHelper
+import streamlit as st
+
+OLLAMA_MODEL_NAME = st.secrets["OLLAMA_MODEL_NAME"]
+EMBEDDING_MODEL_NAME = st.secrets["EMBEDDING_MODEL_NAME"]
+
 
 
 class YouRM(dspy.Retrieve):
@@ -71,96 +82,7 @@ class YouRM(dspy.Retrieve):
 
         return collected_results
 
-
-class BingSearch(dspy.Retrieve):
-    def __init__(self, bing_search_api_key=None, k=3, is_valid_source: Callable = None,
-                 min_char_count: int = 150, snippet_chunk_size: int = 1000, webpage_helper_max_threads=10,
-                 mkt='en-US', language='en', **kwargs):
-        """
-        Params:
-            min_char_count: Minimum character count for the article to be considered valid.
-            snippet_chunk_size: Maximum character count for each snippet.
-            webpage_helper_max_threads: Maximum number of threads to use for webpage helper.
-            mkt, language, **kwargs: Bing search API parameters.
-            - Reference: https://learn.microsoft.com/en-us/bing/search-apis/bing-web-search/reference/query-parameters
-        """
-        super().__init__(k=k)
-        if not bing_search_api_key and not os.environ.get("BING_SEARCH_API_KEY"):
-            raise RuntimeError(
-                "You must supply bing_search_subscription_key or set environment variable BING_SEARCH_API_KEY")
-        elif bing_search_api_key:
-            self.bing_api_key = bing_search_api_key
-        else:
-            self.bing_api_key = os.environ["BING_SEARCH_API_KEY"]
-        self.endpoint = "https://api.bing.microsoft.com/v7.0/search"
-        self.params = {
-            'mkt': mkt,
-            "setLang": language,
-            "count": k,
-            **kwargs
-        }
-        self.webpage_helper = WebPageHelper(
-            min_char_count=min_char_count,
-            snippet_chunk_size=snippet_chunk_size,
-            max_thread_num=webpage_helper_max_threads
-        )
-        self.usage = 0
-
-        # If not None, is_valid_source shall be a function that takes a URL and returns a boolean.
-        if is_valid_source:
-            self.is_valid_source = is_valid_source
-        else:
-            self.is_valid_source = lambda x: True
-
-    def get_usage_and_reset(self):
-        usage = self.usage
-        self.usage = 0
-
-        return {'BingSearch': usage}
-
-    def forward(self, query_or_queries: Union[str, List[str]], exclude_urls: List[str] = []):
-        """Search with Bing for self.k top passages for query or queries
-
-        Args:
-            query_or_queries (Union[str, List[str]]): The query or queries to search for.
-            exclude_urls (List[str]): A list of urls to exclude from the search results.
-
-        Returns:
-            a list of Dicts, each dict has keys of 'description', 'snippets' (list of strings), 'title', 'url'
-        """
-        queries = (
-            [query_or_queries]
-            if isinstance(query_or_queries, str)
-            else query_or_queries
-        )
-        self.usage += len(queries)
-
-        url_to_results = {}
-
-        headers = {"Ocp-Apim-Subscription-Key": self.bing_api_key}
-
-        for query in queries:
-            try:
-                results = requests.get(
-                    self.endpoint,
-                    headers=headers,
-                    params={**self.params, 'q': query}
-                ).json()
-
-                for d in results['webPages']['value']:
-                    if self.is_valid_source(d['url']) and d['url'] not in exclude_urls:
-                        url_to_results[d['url']] = {'url': d['url'], 'title': d['name'], 'description': d['snippet']}
-            except Exception as e:
-                logging.error(f'Error occurs when searching query {query}: {e}')
-
-        valid_url_to_snippets = self.webpage_helper.urls_to_snippets(list(url_to_results.keys()))
-        collected_results = []
-        for url in valid_url_to_snippets:
-            r = url_to_results[url]
-            r['snippets'] = valid_url_to_snippets[url]['snippets']
-            collected_results.append(r)
-
-        return collected_results
+logger = logging.getLogger(__name__)
 
 class VectorRM:
     def __init__(
@@ -174,8 +96,8 @@ class VectorRM:
         self.k = k
         self.persist_directory = persist_directory
         self.usage = 0
-        self.embeddings = embeddings or OllamaEmbeddings(model="llama2")
-        logging.info(f"VectorRM geïnitialiseerd met OllamaEmbeddings model: {self.embeddings.model}")
+        self.embeddings = embeddings or OllamaEmbeddings(model=EMBEDDING_MODEL_NAME)
+        logger.info(f"VectorRM initialized with OllamaEmbeddings model: {self.embeddings.model}")
         
         try:
             self.vectorstore = Chroma(
@@ -183,43 +105,65 @@ class VectorRM:
                 embedding_function=self.embeddings,
                 collection_name=self.collection_name
             )
-            logging.info(f"Chroma vectorstore succesvol geïnitialiseerd")
+            logger.info(f"Chroma vectorstore successfully initialized")
         except Exception as e:
-            logging.error(f"Fout bij initialiseren van Chroma vectorstore: {e}")
+            logger.error(f"Error initializing Chroma vectorstore: {e}")
             self.vectorstore = None
 
-    def add_csv(self, file_path: str):
-        try:
-            # Gebruik het correcte pad naar het CSV-bestand
-            csv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", file_path)
-            if not os.path.exists(csv_path):
-                raise FileNotFoundError(f"CSV-bestand niet gevonden: {csv_path}")
-            
-            df = pd.read_csv(csv_path)
-            documents = []
-            for _, row in df.iterrows():
-                content = " ".join(f"{col}: {val}" for col, val in row.items() if pd.notna(val))
-                documents.append(Document(page_content=content))
-            
-            self.add_documents(documents)
-            logging.info(f"Succesvol {len(documents)} documenten toegevoegd uit CSV-bestand: {csv_path}")
-        except Exception as e:
-            logging.error(f"Fout bij het toevoegen van CSV-bestand {csv_path}: {e}")
+    def add_directory(self, directory_path: str):
+        """
+        Adds all supported files from a directory to the vectorstore.
+        """
+        supported_extensions = ['.csv', '.xlsx', '.docx', '.pdf', '.txt']
+        
+        for root, _, files in os.walk(directory_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                _, ext = os.path.splitext(file)
+                if ext.lower() in supported_extensions:
+                    self.add_file(file_path)
 
-    # De rest van de methoden blijven ongewijzigd
-    def add_documents(self, documents):
+    def add_file(self, file_path: str):
+        """
+        Adds a single file to the vectorstore based on its file type.
+        """
+        _, ext = os.path.splitext(file_path)
+        ext = ext.lower()
+
+        try:
+            if ext == '.csv':
+                loader = CSVLoader(file_path)
+            elif ext == '.xlsx':
+                loader = UnstructuredExcelLoader(file_path)
+            elif ext == '.docx':
+                loader = UnstructuredWordDocumentLoader(file_path)
+            elif ext == '.pdf':
+                loader = UnstructuredPDFLoader(file_path)
+            elif ext == '.txt':
+                loader = TextLoader(file_path)
+            else:
+                logger.warning(f"Unsupported file type: {ext}")
+                return
+
+            documents = loader.load()
+            self.add_documents(documents)
+            logger.info(f"Successfully added documents from file: {file_path}")
+        except Exception as e:
+            logger.error(f"Error adding file {file_path}: {e}")
+
+    def add_documents(self, documents: List[Document]):
         if self.vectorstore is not None:
             self.vectorstore.add_documents(documents)
-            logging.info(f"Succesvol {len(documents)} documenten toegevoegd aan de vectorstore")
+            logger.info(f"Successfully added {len(documents)} documents to the vectorstore")
         else:
-            logging.error("Vectorstore is niet geïnitialiseerd. Kan geen documenten toevoegen.")
+            logger.error("Vectorstore is not initialized. Cannot add documents.")
 
     def get_usage_and_reset(self):
         usage = self.usage
         self.usage = 0
         return {'VectorRM': usage}
 
-    def forward(self, query_or_queries: Union[str, List[str]], exclude_urls: List[str] = []):
+    def retrieve(self, query_or_queries: Union[str, List[str]]) -> List[Dict]:
         queries = [query_or_queries] if isinstance(query_or_queries, str) else query_or_queries
         self.usage += len(queries)
         
@@ -228,25 +172,40 @@ class VectorRM:
             try:
                 results = self.vectorstore.similarity_search_with_score(query, k=self.k)
                 
-                answer = self.process_results(query, results)
+                for doc, score in results:
+                    collected_results.append({
+                        'query': query,
+                        'page_content': doc.page_content,
+                        'metadata': doc.metadata,
+                        'score': score
+                    })
                 
-                collected_results.append({
-                    'query': query,
-                    'answer': answer,
-                    'page_content': answer,  # Voor compatibiliteit met de bestaande structuur
-                    'metadata': {}  # Lege metadata voor compatibiliteit
-                })
-                
-                logging.info(f"VectorRM antwoord gegenereerd voor query '{query}'")
+                logger.info(f"VectorRM retrieved results for query '{query}'")
             except Exception as e:
-                logging.error(f'VectorRM: Fout opgetreden bij het beantwoorden van query {query}: {e}')
+                logger.error(f'VectorRM: Error occurred when retrieving for query {query}: {e}')
         return collected_results
 
-    def process_results(self, query: str, results):
-        if "hoevaak" in query.lower() and "genoemd" in query.lower():
-            word_to_count = query.lower().split("hoevaak")[1].split("genoemd")[0].strip()
-            count = sum(doc.page_content.lower().count(word_to_count) for doc, _ in results)
-            return f"Het woord '{word_to_count}' komt {count} keer voor in de relevante documenten."
-        else:
-            relevant_content = " ".join([doc.page_content for doc, _ in results])
-            return f"Gebaseerd op de relevante documenten: {relevant_content[:200]}..."
+class VectorRMRetriever:
+    def __init__(self, embeddings, k: int = 3):
+        self.vector_rm = VectorRM(embeddings=embeddings, k=k)
+        self.k = k
+        logger.info(f"VectorRMRetriever initialized with k: {k}")
+
+    def retrieve(self, query: Union[str, List[str]]) -> List[Dict]:
+        logger.info(f"VectorRMRetriever.retrieve called with query: {query}")
+        
+        results = self.vector_rm.retrieve(query)
+        logger.info(f"Number of retrieved VectorRM results: {len(results)}")
+        return results[:self.k]
+
+    def add_directory(self, directory_path: str):
+        """
+        Adds all supported files from a directory to the VectorRM.
+        """
+        self.vector_rm.add_directory(directory_path)
+
+    def add_file(self, file_path: str):
+        """
+        Adds a single file to the VectorRM.
+        """
+        self.vector_rm.add_file(file_path)
