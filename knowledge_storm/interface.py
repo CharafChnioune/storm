@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Union, TYPE_CHECKING
 
 from .utils import ArticleTextProcessing
 
+# Configureer logging
 logging.basicConfig(
     level=logging.INFO, format="%(name)s : %(levelname)-8s : %(message)s"
 )
@@ -22,12 +23,12 @@ if TYPE_CHECKING:
 
 class InformationTable(ABC):
     """
-    The InformationTable class serves as data class to store the information
-    collected during KnowledgeCuration stage.
+    De InformationTable klasse dient als dataklasse om informatie op te slaan
+    die verzameld is tijdens de KnowledgeCuration fase.
 
-    Create subclass to incorporate more information as needed. For example,
-    in STORM paper https://arxiv.org/pdf/2402.14207.pdf, additional information
-    would be perspective guided dialogue history.
+    Maak een subklasse om indien nodig meer informatie op te nemen. Bijvoorbeeld,
+    in het STORM-paper (https://arxiv.org/pdf/2402.14207.pdf) zou aanvullende informatie
+    de perspectiefgestuurde dialooggeschiedenis zijn.
     """
 
     def __init__(self):
@@ -39,26 +40,26 @@ class InformationTable(ABC):
 
 
 class Information:
-    """Class to represent detailed information.
+    """Klasse om gedetailleerde informatie weer te geven.
 
-    Inherits from Information to include a unique identifier (URL), and extends
-    it with a description, snippets, and title of the storm information.
+    Erft over van Information om een unieke identifier (URL) op te nemen, en breidt
+    dit uit met een beschrijving, snippets en titel van de storm-informatie.
 
-    Attributes:
-        description (str): Brief description.
-        snippets (list): List of brief excerpts or snippets.
-        title (str): The title or headline of the information.
-        url (str): The unique URL (serving as UUID) of the information.
+    Attributen:
+        description (str): Korte beschrijving.
+        snippets (list): Lijst van korte uittreksels of fragmenten.
+        title (str): De titel of kop van de informatie.
+        url (str): De unieke URL (dienend als UUID) van de informatie.
     """
 
     def __init__(self, url, description, snippets, title, meta=None):
-        """Initialize the Information object with detailed attributes.
+        """Initialiseer het Information object met gedetailleerde attributen.
 
         Args:
-            url (str): The unique URL serving as the identifier for the information.
-            description (str): Detailed description.
-            snippets (list): List of brief excerpts or snippet.
-            title (str): The title or headline of the information.
+            url (str): De unieke URL die dient als identifier voor de informatie.
+            description (str): Gedetailleerde beschrijving.
+            snippets (list): Lijst van korte uittreksels of fragmenten.
+            title (str): De titel of kop van de informatie.
         """
         self.description = description
         self.snippets = snippets
@@ -91,26 +92,26 @@ class Information:
         )
 
     def _meta_str(self):
-        """Generate a string representation of relevant meta information."""
-        return f"Question: {self.meta.get('question', '')}, Query: {self.meta.get('query', '')}"
+        """Genereer een string-representatie van relevante meta-informatie."""
+        return f"Vraag: {self.meta.get('question', '')}, Zoekopdracht: {self.meta.get('query', '')}"
 
     def _md5_hash(self, value):
-        """Generate an MD5 hash for a given value."""
+        """Genereer een MD5-hash voor een gegeven waarde."""
         if isinstance(value, (dict, list, tuple)):
             value = json.dumps(value, sort_keys=True)
         return hashlib.md5(str(value).encode("utf-8")).hexdigest()
 
     @classmethod
     def from_dict(cls, info_dict):
-        """Create a Information object from a dictionary.
-           Usage: info = Information.from_dict(storm_info_dict)
+        """Maak een Information object van een dictionary.
+           Gebruik: info = Information.from_dict(storm_info_dict)
 
         Args:
-            info_dict (dict): A dictionary containing keys 'url', 'description',
-                              'snippets', and 'title' corresponding to the object's attributes.
+            info_dict (dict): Een dictionary met keys 'url', 'description',
+                              'snippets', en 'title' die overeenkomen met de attributen van het object.
 
         Returns:
-            Information: An instance of Information.
+            Information: Een instantie van Information.
         """
         info = cls(
             url=info_dict["url"],
@@ -135,14 +136,14 @@ class Information:
 
 class ArticleSectionNode:
     """
-    The ArticleSectionNode is the dataclass for handling the section of the article.
-    The content storage, section writing preferences are defined in this node.
+    De ArticleSectionNode is de dataklasse voor het verwerken van de sectie van het artikel.
+    De opslag van inhoud en schrijfvoorkeuren voor secties worden in deze node gedefinieerd.
     """
 
     def __init__(self, section_name: str, content=None):
         """
-        section_name: section heading in string format. E.g. Introduction, History, etc.
-        content: content of the section. Up to you for design choice of the data structure.
+        section_name: sectiekop in string-formaat. Bijv. Inleiding, Geschiedenis, etc.
+        content: inhoud van de sectie. De keuze voor de datastructuur is aan jou.
         """
         self.section_name = section_name
         self.content = content
@@ -167,14 +168,14 @@ class Article(ABC):
         self, node: ArticleSectionNode, name: str
     ) -> Optional[ArticleSectionNode]:
         """
-        Return the node of the section given the section name.
+        Geef de node van de sectie terug op basis van de sectienaam.
 
         Args:
-            node: the node as the root to find.
-            name: the name of node as section name
+            node: de node als root om te zoeken.
+            name: de naam van de node als sectienaam
 
         Return:
-            reference of the node or None if section name has no match
+            referentie van de node of None als de sectienaam geen overeenkomst heeft
         """
         if node.section_name == name:
             return node
@@ -187,36 +188,36 @@ class Article(ABC):
     @abstractmethod
     def to_string(self) -> str:
         """
-        Export Article object into string representation.
+        Exporteer Article object naar string-representatie.
         """
 
     def get_outline_tree(self):
         """
-        Generates a hierarchical tree structure representing the outline of the document.
+        Genereert een hiërarchische boomstructuur die de outline van het document weergeeft.
 
         Returns:
-            Dict[str, Dict]: A nested dictionary representing the hierarchical structure of the document's outline.
-                             Each key is a section name, and the value is another dictionary representing the child sections,
-                             recursively forming the tree structure of the document's outline. If a section has no subsections,
-                             its value is an empty dictionary.
+            Dict[str, Dict]: Een geneste dictionary die de hiërarchische structuur van de document-outline weergeeft.
+                             Elke sleutel is een sectienaam, en de waarde is een andere dictionary die de onderliggende secties vertegenwoordigt,
+                             recursief de boomstructuur van de document-outline vormend. Als een sectie geen subsecties heeft,
+                             is de waarde een lege dictionary.
 
-        Example:
-            Assuming a document with a structure like:
-            - Introduction
-                - Background
-                - Objective
-            - Methods
-                - Data Collection
-                - Analysis
-            The method would return:
+        Voorbeeld:
+            Uitgaande van een document met een structuur zoals:
+            - Inleiding
+                - Achtergrond
+                - Doelstelling
+            - Methoden
+                - Gegevensverzameling
+                - Analyse
+            De methode zou het volgende teruggeven:
             {
-                'Introduction': {
-                    'Background': {},
-                    'Objective': {}
+                'Inleiding': {
+                    'Achtergrond': {},
+                    'Doelstelling': {}
                 },
-                'Methods': {
-                    'Data Collection': {},
-                    'Analysis': {}
+                'Methoden': {
+                    'Gegevensverzameling': {},
+                    'Analyse': {}
                 }
             }
         """
@@ -231,7 +232,7 @@ class Article(ABC):
 
     def get_first_level_section_names(self) -> List[str]:
         """
-        Get first level section names
+        Haal de namen van de secties op het eerste niveau op
         """
         return [i.section_name for i in self.root.children]
 
@@ -239,7 +240,7 @@ class Article(ABC):
     @abstractmethod
     def from_string(cls, topic_name: str, article_text: str):
         """
-        Create an instance of the Article object from a string
+        Maak een instantie van het Article object van een string
         """
         pass
 
@@ -259,11 +260,11 @@ class Article(ABC):
 
 class Retriever:
     """
-    An abstract base class for retriever modules. It provides a template for retrieving information based on a query.
+    Een abstracte basisklasse voor retriever modules. Het biedt een sjabloon voor het ophalen van informatie op basis van een query.
 
-    This class should be extended to implement specific retrieval functionalities.
-    Users can design their retriever modules as needed by implementing the retrieve method.
-    The retrieval model/search engine used for each part should be declared with a suffix '_rm' in the attribute name.
+    Deze klasse moet worden uitgebreid om specifieke ophaalmogelijkheden te implementeren.
+    Gebruikers kunnen hun retriever modules naar behoefte ontwerpen door de retrieve-methode te implementeren.
+    Het ophaalmodel/de zoekmachine die voor elk onderdeel wordt gebruikt, moet worden gedeclareerd met een achtervoegsel '_rm' in de attribuutnaam.
     """
 
     def __init__(self, rm: dspy.Retrieve, max_thread: int = 1):
@@ -298,8 +299,8 @@ class Retriever:
             local_to_return = []
             for data in retrieved_data_list:
                 for i in range(len(data["snippets"])):
-                    # STORM generate the article with citations. We do not consider multi-hop citations.
-                    # Remove citations in the source to avoid confusion.
+                    # STORM genereert het artikel met citaten. We beschouwen geen multi-hop citaten.
+                    # Verwijder citaten in de bron om verwarring te voorkomen.
                     data["snippets"][i] = ArticleTextProcessing.remove_citations(
                         data["snippets"][i]
                     )
@@ -321,33 +322,33 @@ class Retriever:
 
 class KnowledgeCurationModule(ABC):
     """
-    The interface for knowledge curation stage. Given topic, return collected information.
+    De interface voor de kenniscuratiefase. Gegeven een onderwerp, retourneert verzamelde informatie.
     """
 
     def __init__(self, retriever: Retriever):
         """
-        Store args and finish initialization.
+        Sla argumenten op en voltooi initialisatie.
         """
         self.retriever = retriever
 
     @abstractmethod
     def research(self, topic) -> InformationTable:
         """
-        Curate information and knowledge for the given topic
+        Cureer informatie en kennis voor het gegeven onderwerp
 
         Args:
-            topic: topic of interest in natural language.
+            topic: onderwerp van interesse in natuurlijke taal.
 
         Returns:
-            collected_information: collected information in InformationTable type.
+            collected_information: verzamelde informatie in InformationTable type.
         """
         pass
 
 
 class OutlineGenerationModule(ABC):
     """
-    The interface for outline generation stage. Given topic, collected information from knowledge
-    curation stage, generate outline for the article.
+    De interface voor de outline-generatiefase. Gegeven onderwerp, verzamelde informatie uit de
+    kenniscuratiefase, genereer een outline voor het artikel.
     """
 
     @abstractmethod
@@ -355,24 +356,24 @@ class OutlineGenerationModule(ABC):
         self, topic: str, information_table: InformationTable, **kwargs
     ) -> Article:
         """
-        Generate outline for the article. Required arguments include:
-            topic: the topic of interest
-            information_table: knowledge curation data generated from KnowledgeCurationModule
+        Genereer outline voor het artikel. Vereiste argumenten zijn:
+            topic: het onderwerp van interesse
+            information_table: kenniscuratiegegevens gegenereerd door KnowledgeCurationModule
 
-        More arguments could be
-            1. draft outline
-            2. user provided outline
+        Meer argumenten kunnen zijn
+            1. concept outline
+            2. door gebruiker verstrekte outline
 
         Returns:
-            article_outline of type ArticleOutline
+            article_outline van het type ArticleOutline
         """
         pass
 
 
 class ArticleGenerationModule(ABC):
     """
-    The interface for article generation stage. Given topic, collected information from
-    knowledge curation stage, generated outline from outline generation stage,
+    De interface voor de artikelgeneratiefase. Gegeven onderwerp, verzamelde informatie uit
+    kenniscuratiefase, gegenereerde outline uit outline-generatiefase,
     """
 
     @abstractmethod
@@ -384,32 +385,32 @@ class ArticleGenerationModule(ABC):
         **kwargs,
     ) -> Article:
         """
-        Generate article. Required arguments include:
-            topic: the topic of interest
-            information_table: knowledge curation data generated from KnowledgeCurationModule
-            article_with_outline: article with specified outline from OutlineGenerationModule
+        Genereer artikel. Vereiste argumenten zijn:
+            topic: het onderwerp van interesse
+            information_table: kenniscuratiegegevens gegenereerd door KnowledgeCurationModule
+            article_with_outline: artikel met gespecificeerde outline van OutlineGenerationModule
         """
         pass
 
 
 class ArticlePolishingModule(ABC):
     """
-    The interface for article generation stage. Given topic, collected information from
-    knowledge curation stage, generated outline from outline generation stage,
+    De interface voor de artikelpolijstfase. Gegeven onderwerp, verzamelde informatie uit
+    kenniscuratiefase, gegenereerde outline uit outline-generatiefase,
     """
 
     @abstractmethod
     def polish_article(self, topic: str, draft_article: Article, **kwargs) -> Article:
         """
-        Polish article. Required arguments include:
-            topic: the topic of interest
-            draft_article: draft article from ArticleGenerationModule.
+        Polijst artikel. Vereiste argumenten zijn:
+            topic: het onderwerp van interesse
+            draft_article: conceptartikel van ArticleGenerationModule.
         """
         pass
 
 
 def log_execution_time(func):
-    """Decorator to log the execution time of a function."""
+    """Decorator om de uitvoeringstijd van een functie te loggen."""
 
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
@@ -417,7 +418,7 @@ def log_execution_time(func):
         result = func(self, *args, **kwargs)
         end_time = time.time()
         execution_time = end_time - start_time
-        logger.info(f"{func.__name__} executed in {execution_time:.4f} seconds")
+        logger.info(f"{func.__name__} uitgevoerd in {execution_time:.4f} seconden")
         self.time[func.__name__] = execution_time
         return result
 
@@ -425,9 +426,9 @@ def log_execution_time(func):
 
 
 class LMConfigs(ABC):
-    """Abstract base class for language model configurations of the knowledge curation engine.
+    """Abstracte basisklasse voor taalmodelconfiguraties van de kenniscuratie-engine.
 
-    The language model used for each part should be declared with a suffix '_lm' in the attribute name.
+    Het taalmodel dat voor elk onderdeel wordt gebruikt, moet worden gedeclareerd met een achtervoegsel '_lm' in de attribuutnaam.
     """
 
     def __init__(self):
@@ -437,7 +438,7 @@ class LMConfigs(ABC):
         for attr_name in self.__dict__:
             if "_lm" in attr_name and getattr(self, attr_name) is None:
                 logging.warning(
-                    f"Language model for {attr_name} is not initialized. Please call set_{attr_name}()"
+                    f"Taalmodel voor {attr_name} is niet geïnitialiseerd. Roep set_{attr_name}() aan"
                 )
 
     def collect_and_reset_lm_history(self):
@@ -487,11 +488,11 @@ class Engine(ABC):
     def __init__(self, lm_configs: LMConfigs):
         self.lm_configs = lm_configs
         self.time = {}
-        self.lm_cost = {}  # Cost of language models measured by in/out tokens.
-        self.rm_cost = {}  # Cost of retrievers measured by number of queries.
+        self.lm_cost = {}  # Kosten van taalmodellen gemeten in in/out tokens.
+        self.rm_cost = {}  # Kosten van retrievers gemeten in aantal queries.
 
     def log_execution_time_and_lm_rm_usage(self, func):
-        """Decorator to log the execution time, language model usage, and retrieval model usage of a function."""
+        """Decorator om de uitvoeringstijd, taalmodelgebruik en retrieval modelgebruik van een functie te loggen."""
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -500,7 +501,7 @@ class Engine(ABC):
             end_time = time.time()
             execution_time = end_time - start_time
             self.time[func.__name__] = execution_time
-            logger.info(f"{func.__name__} executed in {execution_time:.4f} seconds")
+            logger.info(f"{func.__name__} uitgevoerd in {execution_time:.4f} seconden")
             self.lm_cost[func.__name__] = self.lm_configs.collect_and_reset_lm_usage()
             if hasattr(self, "retriever"):
                 self.rm_cost[func.__name__] = (
@@ -511,7 +512,7 @@ class Engine(ABC):
         return wrapper
 
     def apply_decorators(self):
-        """Apply decorators to methods that need them."""
+        """Pas decorators toe op methoden die ze nodig hebben."""
         methods_to_decorate = [
             method_name
             for method_name in dir(self)
@@ -543,17 +544,17 @@ class Engine(ABC):
         pass
 
     def summary(self):
-        print("***** Execution time *****")
+        print("***** Uitvoeringstijd *****")
         for k, v in self.time.items():
-            print(f"{k}: {v:.4f} seconds")
+            print(f"{k}: {v:.4f} seconden")
 
-        print("***** Token usage of language models: *****")
+        print("***** Tokengebruik van taalmodellen: *****")
         for k, v in self.lm_cost.items():
             print(f"{k}")
             for model_name, tokens in v.items():
                 print(f"    {model_name}: {tokens}")
 
-        print("***** Number of queries of retrieval models: *****")
+        print("***** Aantal queries van retrieval modellen: *****")
         for k, v in self.rm_cost.items():
             print(f"{k}: {v}")
 
@@ -565,25 +566,25 @@ class Engine(ABC):
 
 class Agent(ABC):
     """
-    Interface for STORM and Co-STORM LLM agent
+    Interface voor STORM en Co-STORM LLM agent
 
-    This class must be implemented by any subclass of `Agent` to define how the agent generates an utterance.
-    The generated utterance can be influenced by the conversation history, knowledge base, and any additional parameters passed via `kwargs`.
-    The implementation should align with the specific role and perspective of the agent, as defined by the agent's topic, role name, and role description.
+    Deze klasse moet worden geïmplementeerd door elke subklasse van `Agent` om te definiëren hoe de agent een uiting genereert.
+    De gegenereerde uiting kan worden beïnvloed door de gespreksgeschiedenis, kennisbank en eventuele aanvullende parameters die via `kwargs` worden doorgegeven.
+    De implementatie moet aansluiten bij de specifieke rol en het perspectief van de agent, zoals gedefinieerd door het onderwerp, de rolnaam en de rolbeschrijving van de agent.
 
     Args:
-        knowledge_base (KnowledgeBase): The current knowledge base (e.g., mind map in Co-STORM) that contains the accumulated information relevant to the conversation.
-        conversation_history (List[ConversationTurn]): A list of past conversation turns, providing context for generating the next utterance.
-                                                       The agent can refer to this history to maintain continuity and relevance in the conversation.
-        logging_wrapper (LoggingWrapper): A wrapper used for logging important events during the utterance generation process.
-        **kwargs: Additional arguments that can be passed to the method for more specialized utterance generation behavior depending on the agent's specific implementation.
+        knowledge_base (KnowledgeBase): De huidige kennisbank (bijv. mindmap in Co-STORM) die de verzamelde informatie bevat die relevant is voor het gesprek.
+        conversation_history (List[ConversationTurn]): Een lijst van eerdere gespreksbeurten, die context biedt voor het genereren van de volgende uiting.
+                                                       De agent kan naar deze geschiedenis verwijzen om continuïteit en relevantie in het gesprek te behouden.
+        logging_wrapper (LoggingWrapper): Een wrapper die wordt gebruikt voor het loggen van belangrijke gebeurtenissen tijdens het genereren van uitingen.
+        **kwargs: Aanvullende argumenten die aan de methode kunnen worden doorgegeven voor meer gespecialiseerd gedrag bij het genereren van uitingen, afhankelijk van de specifieke implementatie van de agent.
 
     Returns:
-        ConversationTurn: A new conversation turn generated by the agent, containing the agent's response, including the role, utterance type, and relevant information from the knowledge base.
+        ConversationTurn: Een nieuwe gespreksbeurt gegenereerd door de agent, met daarin de respons van de agent, inclusief de rol, het type uiting en relevante informatie uit de kennisbank.
 
-    Notes:
-        - Subclasses of `Agent` should define the exact strategy for generating the utterance, which could involve interacting with a language model, retrieving relevant knowledge, or following specific conversational policies.
-        - The agent's role, perspective, and the knowledge base content will influence how the utterance is formulated.
+    Opmerkingen:
+        - Subklassen van `Agent` moeten de exacte strategie definiëren voor het genereren van de uiting, wat kanxs inhouden dat er wordt geïnteracteerd met een taalmodel, relevante kennis wordt opgehaald of specifieke gespreksregels worden gevolgd.
+        - De rol van de agent, het perspectief en de inhoud van de kennisbank zullen invloed hebben op hoe de uiting wordt geformuleerd.
     """
 
     from .dataclass import KnowledgeBase, ConversationTurn

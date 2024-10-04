@@ -1,34 +1,82 @@
 class BaseCallbackHandler:
-    """Base callback handler that can be used to handle callbacks from the STORM pipeline."""
+    """
+    Basis callback handler die gebruikt kan worden om callbacks af te handelen van de STORM pipeline.
+    Deze klasse definieert de interface voor verschillende stadia in het proces van artikelgeneratie.
+    Subklassen kunnen deze methoden overschrijven om aangepast gedrag te implementeren.
+    """
 
     def on_identify_perspective_start(self, **kwargs):
-        """Run when the perspective identification starts."""
+        """
+        Wordt uitgevoerd wanneer de perspectiefidentificatie start.
+        
+        Args:
+            **kwargs: Variabele keyword argumenten voor toekomstige uitbreidbaarheid.
+        """
         pass
 
     def on_identify_perspective_end(self, perspectives: list[str], **kwargs):
-        """Run when the perspective identification finishes."""
+        """
+        Wordt uitgevoerd wanneer de perspectiefidentificatie is voltooid.
+        
+        Args:
+            perspectives (list[str]): Lijst van geïdentificeerde perspectieven.
+            **kwargs: Variabele keyword argumenten voor toekomstige uitbreidbaarheid.
+        """
         pass
 
     def on_information_gathering_start(self, **kwargs):
-        """Run when the information gathering starts."""
+        """
+        Wordt uitgevoerd wanneer het verzamelen van informatie start.
+        
+        Args:
+            **kwargs: Variabele keyword argumenten voor toekomstige uitbreidbaarheid.
+        """
         pass
 
     def on_dialogue_turn_end(self, dlg_turn, **kwargs):
-        """Run when a question asking and answering turn finishes."""
+        """
+        Wordt uitgevoerd wanneer een vraag-antwoord ronde is voltooid.
+        
+        Args:
+            dlg_turn: Informatie over de voltooide dialoogronde.
+            **kwargs: Variabele keyword argumenten voor toekomstige uitbreidbaarheid.
+        """
         pass
 
     def on_information_gathering_end(self, **kwargs):
-        """Run when the information gathering finishes."""
+        """
+        Wordt uitgevoerd wanneer het verzamelen van informatie is voltooid.
+        
+        Args:
+            **kwargs: Variabele keyword argumenten voor toekomstige uitbreidbaarheid.
+        """
         pass
 
     def on_information_organization_start(self, **kwargs):
-        """Run when the information organization starts."""
+        """
+        Wordt uitgevoerd wanneer de organisatie van informatie start.
+        
+        Args:
+            **kwargs: Variabele keyword argumenten voor toekomstige uitbreidbaarheid.
+        """
         pass
 
     def on_direct_outline_generation_end(self, outline: str, **kwargs):
-        """Run when the direct outline generation finishes."""
+        """
+        Wordt uitgevoerd wanneer de directe outlinegeneratie is voltooid.
+        
+        Args:
+            outline (str): De gegenereerde outline.
+            **kwargs: Variabele keyword argumenten voor toekomstige uitbreidbaarheid.
+        """
         pass
 
     def on_outline_refinement_end(self, outline: str, **kwargs):
-        """Run when the outline refinement finishes."""
+        """
+        Wordt uitgevoerd wanneer de verfijning van de outline is voltooid.
+        
+        Args:
+            outline (str): De verfijnde outline.
+            **kwargs: Variabele keyword argumenten voor toekomstige uitbreidbaarheid.
+        """
         pass

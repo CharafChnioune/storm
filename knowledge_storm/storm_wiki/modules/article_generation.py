@@ -14,8 +14,8 @@ from ...utils import ArticleTextProcessing
 
 class StormArticleGenerationModule(ArticleGenerationModule):
     """
-    The interface for article generation stage. Given topic, collected information from
-    knowledge curation stage, generated outline from outline generation stage,
+    De interface voor de artikelgeneratiefase. Gegeven een onderwerp, verzamelde informatie uit
+    de kenniscuratiefase en gegenereerde outline uit de outlinegeneratiefase.
     """
 
     def __init__(
@@ -33,11 +33,14 @@ class StormArticleGenerationModule(ArticleGenerationModule):
     def generate_section(
         self, topic, section_name, information_table, section_outline, section_query
     ):
+        # Verzamel relevante informatie voor de sectie
         collected_info: List[Information] = []
         if information_table is not None:
             collected_info = information_table.retrieve_information(
                 queries=section_query, search_top_k=self.retrieve_top_k
             )
+        
+        # Genereer de sectie-inhoud
         output = self.section_gen(
             topic=topic,
             outline=section_outline,
@@ -58,14 +61,14 @@ class StormArticleGenerationModule(ArticleGenerationModule):
         callback_handler: BaseCallbackHandler = None,
     ) -> StormArticle:
         """
-        Generate article for the topic based on the information table and article outline.
+        Genereer een artikel voor het onderwerp op basis van de informatietabel en artikeloutline.
 
         Args:
-            topic (str): The topic of the article.
-            information_table (StormInformationTable): The information table containing the collected information.
-            article_with_outline (StormArticle): The article with specified outline.
-            callback_handler (BaseCallbackHandler): An optional callback handler that can be used to trigger
-                custom callbacks at various stages of the article generation process. Defaults to None.
+            topic (str): Het onderwerp van het artikel.
+            information_table (StormInformationTable): De informatietabel met de verzamelde informatie.
+            article_with_outline (StormArticle): Het artikel met gespecificeerde outline.
+            callback_handler (BaseCallbackHandler): Een optionele callback handler die kan worden gebruikt om
+                aangepaste callbacks te triggeren in verschillende stadia van het artikelgeneratieproces. Standaard None.
         """
         information_table.prepare_table_for_retrieval()
 
@@ -77,7 +80,7 @@ class StormArticleGenerationModule(ArticleGenerationModule):
         section_output_dict_collection = []
         if len(sections_to_write) == 0:
             logging.error(
-                f"No outline for {topic}. Will directly search with the topic."
+                f"Geen outline voor {topic}. Zal direct zoeken met het onderwerp."
             )
             section_output_dict = self.generate_section(
                 topic=topic,
@@ -88,20 +91,21 @@ class StormArticleGenerationModule(ArticleGenerationModule):
             )
             section_output_dict_collection = [section_output_dict]
         else:
-
+            # Gebruik multithreading om secties parallel te genereren
             with concurrent.futures.ThreadPoolExecutor(
                 max_workers=self.max_thread_num
             ) as executor:
                 future_to_sec_title = {}
                 for section_title in sections_to_write:
-                    # We don't want to write a separate introduction section.
+                    # We willen geen aparte introductiesectie schrijven.
                     if section_title.lower().strip() == "introduction":
                         continue
-                        # We don't want to write a separate conclusion section.
+                    # We willen geen aparte conclusiesectie schrijven.
                     if section_title.lower().strip().startswith(
                         "conclusion"
                     ) or section_title.lower().strip().startswith("summary"):
                         continue
+                    
                     section_query = article_with_outline.get_outline_as_list(
                         root_section_name=section_title, add_hashtags=False
                     )
@@ -123,6 +127,7 @@ class StormArticleGenerationModule(ArticleGenerationModule):
                 for future in as_completed(future_to_sec_title):
                     section_output_dict_collection.append(future.result())
 
+        # Voeg gegenereerde secties toe aan het artikel
         article = copy.deepcopy(article_with_outline)
         for section_output_dict in section_output_dict_collection:
             article.update_section(
@@ -135,7 +140,7 @@ class StormArticleGenerationModule(ArticleGenerationModule):
 
 
 class ConvToSection(dspy.Module):
-    """Use the information collected from the information-seeking conversation to write a section."""
+    """Gebruik de informatie verzameld uit het informatiezoekgesprek om een sectie te schrijven."""
 
     def __init__(self, engine: Union[dspy.dsp.LM, dspy.dsp.HFModel]):
         super().__init__()
@@ -145,13 +150,16 @@ class ConvToSection(dspy.Module):
     def forward(
         self, topic: str, outline: str, section: str, collected_info: List[Information]
     ):
+        # Bereid verzamelde informatie voor
         info = ""
         for idx, storm_info in enumerate(collected_info):
             info += f"[{idx + 1}]\n" + "\n".join(storm_info.snippets)
             info += "\n\n"
 
+        # Beperk de hoeveelheid informatie om overbelasting te voorkomen
         info = ArticleTextProcessing.limit_word_count_preserve_newline(info, 1500)
 
+        # Genereer de sectie-inhoud
         with dspy.settings.context(lm=self.engine):
             section = ArticleTextProcessing.clean_up_section(
                 self.write_section(topic=topic, info=info, section=section).output
@@ -161,17 +169,18 @@ class ConvToSection(dspy.Module):
 
 
 class WriteSection(dspy.Signature):
-    """Write a Wikipedia section based on the collected information.
+    """
+    Schrijf een Wikipedia-sectie op basis van de verzamelde informatie.
 
-    Here is the format of your writing:
-        1. Use "#" Title" to indicate section title, "##" Title" to indicate subsection title, "###" Title" to indicate subsubsection title, and so on.
-        2. Use [1], [2], ..., [n] in line (for example, "The capital of the United States is Washington, D.C.[1][3]."). You DO NOT need to include a References or Sources section to list the sources at the end.
+    Hier is het formaat van je schrijven:
+        1. Gebruik "#" Titel" om een sectietitel aan te geven, "##" Titel" voor een subsectietitel, "###" Titel" voor een subsubsectietitel, enzovoort.
+        2. Gebruik [1], [2], ..., [n] in de regel (bijvoorbeeld, "De hoofdstad van de Verenigde Staten is Washington, D.C.[1][3]."). Je hoeft GEEN Referenties- of Bronnensectie op te nemen om de bronnen aan het einde te vermelden.
     """
 
-    info = dspy.InputField(prefix="The collected information:\n", format=str)
-    topic = dspy.InputField(prefix="The topic of the page: ", format=str)
-    section = dspy.InputField(prefix="The section you need to write: ", format=str)
+    info = dspy.InputField(prefix="De verzamelde informatie:\n", format=str)
+    topic = dspy.InputField(prefix="Het onderwerp van de pagina: ", format=str)
+    section = dspy.InputField(prefix="De sectie die je moet schrijven: ", format=str)
     output = dspy.OutputField(
-        prefix="Write the section with proper inline citations (Start your writing with # section title. Don't include the page title or try to write other sections):\n",
+        prefix="Schrijf de sectie met juiste inline citaties (Begin je schrijven met # sectietitel. Neem de paginatitel niet op en probeer geen andere secties te schrijven):\n",
         format=str,
     )

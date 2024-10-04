@@ -12,6 +12,10 @@ from ...utils import ArticleTextProcessing, FileIOHelper
 
 
 class DialogueTurn:
+    """
+    Representeert een beurt in een dialoog, met uitingen van agent en gebruiker,
+    plus eventuele zoekopdrachten en -resultaten.
+    """
     def __init__(
         self,
         agent_utterance: str = None,
@@ -24,6 +28,7 @@ class DialogueTurn:
         self.search_queries = search_queries
         self.search_results = search_results
 
+        # Zet dict-resultaten om naar Information-objecten
         if self.search_results:
             for idx in range(len(self.search_results)):
                 if type(self.search_results[idx]) == dict:
@@ -33,7 +38,7 @@ class DialogueTurn:
 
     def log(self):
         """
-        Returns a json object that contains all information inside `self`
+        Geeft een json-object terug met alle informatie in `self`
         """
         return OrderedDict(
             {
@@ -47,12 +52,8 @@ class DialogueTurn:
 
 class StormInformationTable(InformationTable):
     """
-    The InformationTable class serves as data class to store the information
-    collected during KnowledgeCuration stage.
-
-    Create subclass to incorporate more information as needed. For example,
-    in STORM paper https://arxiv.org/pdf/2402.14207.pdf, additional information
-    would be perspective guided dialogue history.
+    Dataklasse voor het opslaan van informatie verzameld tijdens KnowledgeCuration.
+    Kan worden uitgebreid met extra informatie, zoals perspectief-geleide dialooggeschiedenis.
     """
 
     def __init__(self, conversations=List[Tuple[str, List[DialogueTurn]]]):
@@ -66,6 +67,9 @@ class StormInformationTable(InformationTable):
     def construct_url_to_info(
         conversations: List[Tuple[str, List[DialogueTurn]]]
     ) -> Dict[str, Information]:
+        """
+        Bouwt een dictionary van URL's naar Information-objecten op basis van gesprekken.
+        """
         url_to_info = {}
 
         for persona, conv in conversations:
@@ -83,6 +87,9 @@ class StormInformationTable(InformationTable):
     def construct_log_dict(
         conversations: List[Tuple[str, List[DialogueTurn]]]
     ) -> List[Dict[str, Union[str, Any]]]:
+        """
+        Maakt een logboek van gesprekken in dict-formaat.
+        """
         conversation_log = []
         for persona, conv in conversations:
             conversation_log.append(
@@ -91,6 +98,9 @@ class StormInformationTable(InformationTable):
         return conversation_log
 
     def dump_url_to_info(self, path):
+        """
+        Slaat de url_to_info dictionary op als JSON-bestand.
+        """
         url_to_info = copy.deepcopy(self.url_to_info)
         for url in url_to_info:
             url_to_info[url] = url_to_info[url].to_dict()
@@ -98,6 +108,9 @@ class StormInformationTable(InformationTable):
 
     @classmethod
     def from_conversation_log_file(cls, path):
+        """
+        Maakt een StormInformationTable-instantie van een gesprekslogboekbestand.
+        """
         conversation_log_data = FileIOHelper.load_json(path)
         conversations = []
         for item in conversation_log_data:
@@ -107,6 +120,9 @@ class StormInformationTable(InformationTable):
         return cls(conversations)
 
     def prepare_table_for_retrieval(self):
+        """
+        Bereidt de tabel voor op informatieophaling door snippets te coderen.
+        """
         self.encoder = SentenceTransformer("paraphrase-MiniLM-L6-v2")
         self.collected_urls = []
         self.collected_snippets = []
@@ -121,6 +137,9 @@ class StormInformationTable(InformationTable):
     def retrieve_information(
         self, queries: Union[List[str], str], search_top_k
     ) -> List[Information]:
+        """
+        Haalt relevante informatie op op basis van zoekopdrachten.
+        """
         selected_urls = []
         selected_snippets = []
         if type(queries) is str:
@@ -148,6 +167,9 @@ class StormInformationTable(InformationTable):
 
 
 class StormArticle(Article):
+    """
+    Representeert een artikel met secties, inhoud en referenties.
+    """
     def __init__(self, topic_name):
         super().__init__(topic_name=topic_name)
         self.reference = {"url_to_unified_index": {}, "url_to_info": {}}
@@ -156,14 +178,7 @@ class StormArticle(Article):
         self, node: ArticleSectionNode, name: str
     ) -> Optional[ArticleSectionNode]:
         """
-        Return the node of the section given the section name.
-
-        Args:
-            node: the node as the root to find.
-            name: the name of node as section name
-
-        Return:
-            reference of the node or None if section name has no match
+        Zoekt een sectie op basis van de naam en geeft de node terug.
         """
         if node.section_name == name:
             return node
@@ -177,15 +192,7 @@ class StormArticle(Article):
         self, new_info_list: List[Information], index_to_keep=None
     ) -> Dict[int, int]:
         """
-        Merges new storm information into existing references and updates the citation index mapping.
-
-        Args:
-        new_info_list (List[Information]): A list of dictionaries representing new storm information.
-        index_to_keep (List[int]): A list of index of the new_info_list to keep. If none, keep all.
-
-        Returns:
-        Dict[int, int]: A dictionary mapping the index of each storm information piece in the input list
-                        to its unified citation index in the references.
+        Voegt nieuwe storm-informatie samen met bestaande referenties en werkt de citatie-indexmapping bij.
         """
         citation_idx_mapping = {}
         for idx, storm_info in enumerate(new_info_list):
@@ -195,7 +202,7 @@ class StormArticle(Article):
             if url not in self.reference["url_to_unified_index"]:
                 self.reference["url_to_unified_index"][url] = (
                     len(self.reference["url_to_unified_index"]) + 1
-                )  # The citation index starts from 1.
+                )  # De citatie-index begint bij 1.
                 self.reference["url_to_info"][url] = storm_info
             else:
                 existing_snippets = self.reference["url_to_info"][url].snippets
@@ -205,7 +212,7 @@ class StormArticle(Article):
                 )
             citation_idx_mapping[idx + 1] = self.reference["url_to_unified_index"][
                 url
-            ]  # The citation index starts from 1.
+            ]  # De citatie-index begint bij 1.
         return citation_idx_mapping
 
     def insert_or_create_section(
@@ -214,6 +221,9 @@ class StormArticle(Article):
         parent_section_name: str = None,
         trim_children=False,
     ):
+        """
+        Voegt nieuwe secties toe of werkt bestaande secties bij in het artikel.
+        """
         parent_node = (
             self.root
             if parent_section_name is None
@@ -255,22 +265,13 @@ class StormArticle(Article):
         parent_section_name: Optional[str] = None,
     ) -> Optional[ArticleSectionNode]:
         """
-        Add new section to the article.
-
-        Args:
-            current_section_name: new section heading name in string format.
-            parent_section_name: under which parent section to add the new one. Default to root.
-            current_section_content: optional section content.
-
-        Returns:
-            the ArticleSectionNode for current section if successfully created / updated. Otherwise none.
+        Werkt een bestaande sectie bij of voegt een nieuwe sectie toe aan het artikel.
         """
-
         if current_section_info_list is not None:
             references = set(
                 [int(x) for x in re.findall(r"\[(\d+)\]", current_section_content)]
             )
-            # for any reference number greater than max number of references, delete the reference
+            # Verwijder referenties met nummers hoger dan het aantal beschikbare referenties
             if len(references) > 0:
                 max_ref_num = max(references)
                 if max_ref_num > len(current_section_info_list):
@@ -280,7 +281,7 @@ class StormArticle(Article):
                         )
                         if i in references:
                             references.remove(i)
-            # for any reference that is not used, trim it from current_section_info_list
+            # Verwijder ongebruikte referenties uit current_section_info_list
             index_to_keep = [i - 1 for i in references]
             citation_mapping = self._merge_new_info_to_references(
                 current_section_info_list, index_to_keep
@@ -307,20 +308,7 @@ class StormArticle(Article):
         include_root: bool = True,
     ) -> List[str]:
         """
-        Get outline of the article as a list.
-
-        Args:
-            section_name: get all section names in pre-order travel ordering in the subtree of section_name.
-                          For example:
-                            #root
-                            ##section1
-                            ###section1.1
-                            ###section1.2
-                            ##section2
-                          article.get_outline_as_list("section1") returns [section1, section1.1, section1.2, section2]
-
-        Returns:
-            list of section and subsection names.
+        Geeft een overzicht van het artikel als een lijst van sectienamen.
         """
         if root_section_name is None:
             section_node = self.root
@@ -334,7 +322,7 @@ class StormArticle(Article):
         def preorder_traverse(node, level):
             prefix = (
                 "#" * level if add_hashtags else ""
-            )  # Adjust level if excluding root
+            )  # Pas niveau aan als root wordt uitgesloten
             result.append(
                 f"{prefix} {node.section_name}".strip()
                 if add_hashtags
@@ -343,7 +331,7 @@ class StormArticle(Article):
             for child in node.children:
                 preorder_traverse(child, level + 1)
 
-        # Adjust the initial level based on whether root is included and hashtags are added
+        # Pas het initiële niveau aan op basis van of root is opgenomen en hashtags worden toegevoegd
         if include_root:
             preorder_traverse(section_node, level=1)
         else:
@@ -353,10 +341,7 @@ class StormArticle(Article):
 
     def to_string(self) -> str:
         """
-        Get outline of the article as a list.
-
-        Returns:
-            list of section and subsection names.
+        Zet het artikel om naar een string-representatie.
         """
         result = []
 
@@ -367,14 +352,17 @@ class StormArticle(Article):
             for child in node.children:
                 preorder_traverse(child, level + 1)
 
-        # Adjust the initial level based on whether root is included and hashtags are added
+        # Pas het initiële niveau aan op basis van of root is opgenomen en hashtags worden toegevoegd
         for child in self.root.children:
             preorder_traverse(child, level=1)
         result = [i.strip() for i in result if i is not None and i.strip()]
         return "\n\n".join(result)
 
     def reorder_reference_index(self):
-        # pre-order traversal to get order of references appear in the article
+        """
+        Herordent de referentie-indexen in het artikel.
+        """
+        # Pre-order traversal om de volgorde van referenties in het artikel te krijgen
         ref_indices = []
 
         def pre_order_find_index(node):
@@ -387,31 +375,7 @@ class StormArticle(Article):
                     pre_order_find_index(child)
 
         pre_order_find_index(self.root)
-        # constrcut index mapping
-        ref_index_mapping = {}
-        for ref_index in ref_indices:
-            if ref_index not in ref_index_mapping:
-                ref_index_mapping[ref_index] = len(ref_index_mapping) + 1
-
-        # update content
-        def pre_order_update_index(node):
-            if node is not None:
-                if node.content is not None and node.content:
-                    node.content = ArticleTextProcessing.update_citation_index(
-                        node.content, ref_index_mapping
-                    )
-                for child in node.children:
-                    pre_order_update_index(child)
-
-        pre_order_update_index(self.root)
-        # update reference
-        for url in list(self.reference["url_to_unified_index"]):
-            pre_index = self.reference["url_to_unified_index"][url]
-            if pre_index not in ref_index_mapping:
-                del self.reference["url_to_unified_index"][url]
-            else:
-                new_index = ref_index_mapping[pre_index]
-                self.reference["url_to_unified_index"][url] = new_index
+        # B
 
     def get_outline_tree(self):
         def build_tree(node) -> Dict[str, Dict]:

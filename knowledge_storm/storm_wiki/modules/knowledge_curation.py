@@ -12,18 +12,22 @@ from .storm_dataclass import DialogueTurn, StormInformationTable
 from ...interface import KnowledgeCurationModule, Retriever, Information
 from ...utils import ArticleTextProcessing
 
+# Controleer of Streamlit beschikbaar is voor logging context
 try:
     from streamlit.runtime.scriptrunner import add_script_run_ctx
-
     streamlit_connection = True
 except ImportError as err:
     streamlit_connection = False
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
-
 class ConvSimulator(dspy.Module):
-    """Simulate a conversation between a Wikipedia writer with specific persona and an expert."""
+    """
+    Simuleert een gesprek tussen een Wikipedia-schrijver met een specifieke persona en een expert.
+    
+    Deze klasse gebruikt twee taalmodellen: één voor de expert en één voor de vraagsteller,
+    en een retriever om relevante informatie op te halen tijdens het gesprek.
+    """
 
     def __init__(
         self,
@@ -35,6 +39,7 @@ class ConvSimulator(dspy.Module):
         max_turn: int,
     ):
         super().__init__()
+        # Initialiseer componenten voor de simulatie
         self.wiki_writer = WikiWriter(engine=question_asker_engine)
         self.topic_expert = TopicExpert(
             engine=topic_expert_engine,
@@ -52,20 +57,29 @@ class ConvSimulator(dspy.Module):
         callback_handler: BaseCallbackHandler,
     ):
         """
-        topic: The topic to research.
-        persona: The persona of the Wikipedia writer.
-        ground_truth_url: The ground_truth_url will be excluded from search to avoid ground truth leakage in evaluation.
+        Voert de conversatiesimulatie uit.
+
+        Args:
+            topic: Het onderwerp waarover onderzoek wordt gedaan.
+            persona: De persona van de Wikipedia-schrijver.
+            ground_truth_url: Deze URL wordt uitgesloten van de zoekopdracht om lekkage van grondwaarheid bij evaluatie te voorkomen.
+            callback_handler: Handler voor callbacks tijdens de simulatie.
+
+        Returns:
+            Een dspy.Prediction object met de gespreksgeschiedenis.
         """
         dlg_history: List[DialogueTurn] = []
         for _ in range(self.max_turn):
+            # Genereer een vraag van de Wikipedia-schrijver
             user_utterance = self.wiki_writer(
                 topic=topic, persona=persona, dialogue_turns=dlg_history
             ).question
             if user_utterance == "":
-                logging.error("Simulated Wikipedia writer utterance is empty.")
+                logging.error("Gesimuleerde Wikipedia-schrijver uiting is leeg.")
                 break
-            if user_utterance.startswith("Thank you so much for your help!"):
+            if user_utterance.startswith("Hartelijk dank voor je hulp!"):
                 break
+            # Genereer een antwoord van de expert
             expert_output = self.topic_expert(
                 topic=topic, question=user_utterance, ground_truth_url=ground_truth_url
             )
@@ -82,9 +96,11 @@ class ConvSimulator(dspy.Module):
 
 
 class WikiWriter(dspy.Module):
-    """Perspective-guided question asking in conversational setup.
-
-    The asked question will be used to start a next round of information seeking."""
+    """
+    Genereert vragen vanuit het perspectief van een Wikipedia-schrijver in een conversationele setup.
+    
+    De gegenereerde vraag wordt gebruikt om een nieuwe ronde van informatieverzameling te starten.
+    """
 
     def __init__(self, engine: Union[dspy.dsp.LM, dspy.dsp.HFModel]):
         super().__init__()
@@ -99,6 +115,7 @@ class WikiWriter(dspy.Module):
         dialogue_turns: List[DialogueTurn],
         draft_page=None,
     ):
+        # Bereid de conversatiegeschiedenis voor
         conv = []
         for turn in dialogue_turns[:-4]:
             conv.append(
@@ -112,6 +129,7 @@ class WikiWriter(dspy.Module):
         conv = conv.strip() or "N/A"
         conv = ArticleTextProcessing.limit_word_count_preserve_newline(conv, 2500)
 
+        # Genereer een vraag met of zonder persona
         with dspy.settings.context(lm=self.engine):
             if persona is not None and len(persona.strip()) > 0:
                 question = self.ask_question_with_persona(
@@ -126,64 +144,71 @@ class WikiWriter(dspy.Module):
 
 
 class AskQuestion(dspy.Signature):
-    """You are an experienced Wikipedia writer. You are chatting with an expert to get information for the topic you want to contribute. Ask good questions to get more useful information relevant to the topic.
-    When you have no more question to ask, say "Thank you so much for your help!" to end the conversation.
-    Please only ask a question at a time and don't ask what you have asked before. Your questions should be related to the topic you want to write.
+    """
+    Je bent een ervaren Wikipedia-schrijver. Je chat met een expert om informatie te krijgen voor het onderwerp waarover je wilt bijdragen. 
+    Stel goede vragen om meer nuttige informatie te krijgen die relevant is voor het onderwerp.
+    Als je geen vragen meer hebt, zeg dan "Hartelijk dank voor je hulp!" om het gesprek te beëindigen.
+    Stel alsjeblieft één vraag tegelijk en herhaal geen vragen die je al eerder hebt gesteld. Je vragen moeten gerelateerd zijn aan het onderwerp waarover je wilt schrijven.
     """
 
-    topic = dspy.InputField(prefix="Topic you want to write: ", format=str)
-    conv = dspy.InputField(prefix="Conversation history:\n", format=str)
+    topic = dspy.InputField(prefix="Onderwerp waarover je wilt schrijven: ", format=str)
+    conv = dspy.InputField(prefix="Gespreksgeschiedenis:\n", format=str)
     question = dspy.OutputField(format=str)
 
 
 class AskQuestionWithPersona(dspy.Signature):
-    """You are an experienced Wikipedia writer and want to edit a specific page. Besides your identity as a Wikipedia writer, you have specific focus when researching the topic.
-    Now, you are chatting with an expert to get information. Ask good questions to get more useful information.
-    When you have no more question to ask, say "Thank you so much for your help!" to end the conversation.
-    Please only ask a question at a time and don't ask what you have asked before. Your questions should be related to the topic you want to write.
+    """
+    Je bent een ervaren Wikipedia-schrijver en wilt een specifieke pagina bewerken. Naast je identiteit als Wikipedia-schrijver heb je een specifieke focus bij het onderzoeken van het onderwerp.
+    Nu chat je met een expert om informatie te krijgen. Stel goede vragen om meer nuttige informatie te krijgen.
+    Als je geen vragen meer hebt, zeg dan "Hartelijk dank voor je hulp!" om het gesprek te beëindigen.
+    Stel alsjeblieft één vraag tegelijk en herhaal geen vragen die je al eerder hebt gesteld. Je vragen moeten gerelateerd zijn aan het onderwerp waarover je wilt schrijven.
     """
 
-    topic = dspy.InputField(prefix="Topic you want to write: ", format=str)
+    topic = dspy.InputField(prefix="Onderwerp waarover je wilt schrijven: ", format=str)
     persona = dspy.InputField(
-        prefix="Your persona besides being a Wikipedia writer: ", format=str
+        prefix="Je persona naast het zijn van een Wikipedia-schrijver: ", format=str
     )
-    conv = dspy.InputField(prefix="Conversation history:\n", format=str)
+    conv = dspy.InputField(prefix="Gespreksgeschiedenis:\n", format=str)
     question = dspy.OutputField(format=str)
 
 
 class QuestionToQuery(dspy.Signature):
-    """You want to answer the question using Google search. What do you type in the search box?
-    Write the queries you will use in the following format:
-    - query 1
-    - query 2
+    """
+    Je wilt de vraag beantwoorden met behulp van Google-zoekopdrachten. Wat typ je in het zoekvak?
+    Schrijf de zoekopdrachten die je zult gebruiken in het volgende formaat:
+    - zoekopdracht 1
+    - zoekopdracht 2
     ...
-    - query n"""
+    - zoekopdracht n
+    """
 
-    topic = dspy.InputField(prefix="Topic you are discussing about: ", format=str)
-    question = dspy.InputField(prefix="Question you want to answer: ", format=str)
+    topic = dspy.InputField(prefix="Onderwerp waarover je discussieert: ", format=str)
+    question = dspy.InputField(prefix="Vraag die je wilt beantwoorden: ", format=str)
     queries = dspy.OutputField(format=str)
 
 
 class AnswerQuestion(dspy.Signature):
-    """You are an expert who can use information effectively. You are chatting with a Wikipedia writer who wants to write a Wikipedia page on topic you know. You have gathered the related information and will now use the information to form a response.
-    Make your response as informative as possible, ensuring that every sentence is supported by the gathered information. If the [gathered information] is not directly related to the [topic] or [question], provide the most relevant answer based on the available information. If no appropriate answer can be formulated, respond with, “I cannot answer this question based on the available information,” and explain any limitations or gaps.
+    """
+    Je bent een expert die effectief informatie kan gebruiken. Je chat met een Wikipedia-schrijver die een Wikipedia-pagina wil schrijven over een onderwerp dat je kent. Je hebt gerelateerde informatie verzameld en zult deze nu gebruiken om een antwoord te formuleren.
+    Maak je antwoord zo informatief mogelijk en zorg ervoor dat elke zin wordt ondersteund door de verzamelde informatie. Als de [verzamelde informatie] niet direct gerelateerd is aan het [onderwerp] of de [vraag], geef dan het meest relevante antwoord op basis van de beschikbare informatie. Als er geen passend antwoord kan worden geformuleerd, antwoord dan met "Ik kan deze vraag niet beantwoorden op basis van de beschikbare informatie" en leg eventuele beperkingen of hiaten uit.
     """
 
-    topic = dspy.InputField(prefix="Topic you are discussing about:", format=str)
-    conv = dspy.InputField(prefix="Question:\n", format=str)
-    info = dspy.InputField(prefix="Gathered information:\n", format=str)
+    topic = dspy.InputField(prefix="Onderwerp waarover je discussieert:", format=str)
+    conv = dspy.InputField(prefix="Vraag:\n", format=str)
+    info = dspy.InputField(prefix="Verzamelde informatie:\n", format=str)
     answer = dspy.OutputField(
-        prefix="Now give your response. (Try to use as many different sources as possible and add do not hallucinate.)\n",
+        prefix="Geef nu je antwoord. (Probeer zoveel mogelijk verschillende bronnen te gebruiken en voeg geen verzonnen informatie toe.)\n",
         format=str,
     )
 
 
 class TopicExpert(dspy.Module):
-    """Answer questions using search-based retrieval and answer generation. This module conducts the following steps:
-    1. Generate queries from the question.
-    2. Search for information using the queries.
-    3. Filter out unreliable sources.
-    4. Generate an answer using the retrieved information.
+    """
+    Beantwoordt vragen met behulp van op zoekopdrachten gebaseerde retrieval en antwoordgeneratie. Deze module voert de volgende stappen uit:
+    1. Genereer zoekopdrachten op basis van de vraag.
+    2. Zoek naar informatie met behulp van de zoekopdrachten.
+    3. Filter onbetrouwbare bronnen uit.
+    4. Genereer een antwoord met behulp van de opgehaalde informatie.
     """
 
     def __init__(
@@ -203,19 +228,19 @@ class TopicExpert(dspy.Module):
 
     def forward(self, topic: str, question: str, ground_truth_url: str):
         with dspy.settings.context(lm=self.engine, show_guidelines=False):
-            # Identify: Break down question into queries.
+            # Identificeer: Splits de vraag op in zoekopdrachten
             queries = self.generate_queries(topic=topic, question=question).queries
             queries = [
                 q.replace("-", "").strip().strip('"').strip('"').strip()
                 for q in queries.split("\n")
             ]
             queries = queries[: self.max_search_queries]
-            # Search
+            # Zoek
             searched_results: List[Information] = self.retriever.retrieve(
                 list(set(queries)), exclude_urls=[ground_truth_url]
             )
             if len(searched_results) > 0:
-                # Evaluate: Simplify this part by directly using the top 1 snippet.
+                # Evalueer: Vereenvoudig dit deel door direct het bovenste snippet te gebruiken
                 info = ""
                 for n, r in enumerate(searched_results):
                     info += "\n".join(f"[{n + 1}]: {s}" for s in r.snippets[:1])
@@ -233,11 +258,11 @@ class TopicExpert(dspy.Module):
                         answer
                     )
                 except Exception as e:
-                    logging.error(f"Error occurs when generating answer: {e}")
-                    answer = "Sorry, I cannot answer this question. Please ask another question."
+                    logging.error(f"Fout bij het genereren van antwoord: {e}")
+                    answer = "Sorry, ik kan deze vraag niet beantwoorden. Stel alsjeblieft een andere vraag."
             else:
-                # When no information is found, the expert shouldn't hallucinate.
-                answer = "Sorry, I cannot find information for this question. Please ask another question."
+                # Als er geen informatie wordt gevonden, moet de expert niet fantaseren
+                answer = "Sorry, ik kan geen informatie vinden voor deze vraag. Stel alsjeblieft een andere vraag."
 
         return dspy.Prediction(
             queries=queries, searched_results=searched_results, answer=answer
@@ -246,7 +271,10 @@ class TopicExpert(dspy.Module):
 
 class StormKnowledgeCurationModule(KnowledgeCurationModule):
     """
-    The interface for knowledge curation stage. Given topic, return collected information.
+    De interface voor de kenniscuratiefase. Gegeven een onderwerp, retourneert deze module verzamelde informatie.
+    
+    Deze module coördineert het proces van kenniscuratie, inclusief het genereren van persona's,
+    het simuleren van gesprekken, en het verzamelen van informatie uit deze gesprekken.
     """
 
     def __init__(
@@ -261,7 +289,7 @@ class StormKnowledgeCurationModule(KnowledgeCurationModule):
         max_thread_num: int,
     ):
         """
-        Store args and finish initialization.
+        Initialiseert de module met de benodigde componenten en parameters.
         """
         self.retriever = retriever
         self.persona_generator = persona_generator
@@ -279,6 +307,9 @@ class StormKnowledgeCurationModule(KnowledgeCurationModule):
         )
 
     def _get_considered_personas(self, topic: str, max_num_persona) -> List[str]:
+        """
+        Genereert een lijst van persona's voor het gegeven onderwerp.
+        """
         return self.persona_generator.generate_persona(
             topic=topic, max_num_persona=max_num_persona
         )
@@ -292,26 +323,13 @@ class StormKnowledgeCurationModule(KnowledgeCurationModule):
         callback_handler: BaseCallbackHandler,
     ) -> List[Tuple[str, List[DialogueTurn]]]:
         """
-        Executes multiple conversation simulations concurrently, each with a different persona,
-        and collects their dialog histories. The dialog history of each conversation is cleaned
-        up before being stored.
-
-        Parameters:
-            conv_simulator (callable): The function to simulate conversations. It must accept four
-                parameters: `topic`, `ground_truth_url`, `persona`, and `callback_handler`, and return
-                an object that has a `dlg_history` attribute.
-            topic (str): The topic of conversation for the simulations.
-            ground_truth_url (str): The URL to the ground truth data related to the conversation topic.
-            considered_personas (list): A list of personas under which the conversation simulations
-                will be conducted. Each persona is passed to `conv_simulator` individually.
-            callback_handler (callable): A callback function that is passed to `conv_simulator`. It
-                should handle any callbacks or events during the simulation.
+        Voert meerdere gesprekssimulaties parallel uit, elk met een andere persona,
+        en verzamelt hun gespreksgeschiedenissen.
 
         Returns:
-            list of tuples: A list where each tuple contains a persona and its corresponding cleaned
-            dialog history (`dlg_history`) from the conversation simulation.
+            Een lijst van tuples, waarbij elke tuple een persona en de bijbehorende
+            opgeschoonde gespreksgeschiedenis bevat.
         """
-
         conversations = []
 
         def run_conv(persona):
@@ -331,7 +349,7 @@ class StormKnowledgeCurationModule(KnowledgeCurationModule):
             }
 
             if streamlit_connection:
-                # Ensure the logging context is correct when connecting with Streamlit frontend.
+                # Zorg voor de juiste logging context bij verbinding met Streamlit frontend
                 for t in executor._threads:
                     add_script_run_ctx(t)
 
@@ -354,16 +372,20 @@ class StormKnowledgeCurationModule(KnowledgeCurationModule):
         return_conversation_log=False,
     ) -> Union[StormInformationTable, Tuple[StormInformationTable, Dict]]:
         """
-        Curate information and knowledge for the given topic
+        Verzamelt informatie en kennis voor het gegeven onderwerp.
 
         Args:
-            topic: topic of interest in natural language.
+            topic: Onderwerp van interesse in natuurlijke taal.
+            ground_truth_url: URL van de grondwaarheid, uitgesloten van zoekopdrachten.
+            callback_handler: Handler voor callbacks tijdens het onderzoeksproces.
+            max_perspective: Maximaal aantal te genereren persona's.
+            disable_perspective: Indien True, worden geen persona's gebruikt.
+            return_conversation_log: Indien True, wordt ook een log van de gesprekken geretourneerd.
 
         Returns:
-            collected_information: collected information in InformationTable type.
+            Een StormInformationTable met verzamelde informatie, en optioneel een log van de gesprekken.
         """
-
-        # identify personas
+        # Identificeer persona's
         callback_handler.on_identify_perspective_start()
         considered_personas = []
         if disable_perspective:
@@ -374,7 +396,7 @@ class StormKnowledgeCurationModule(KnowledgeCurationModule):
             )
         callback_handler.on_identify_perspective_end(perspectives=considered_personas)
 
-        # run conversation
+        # Voer gesprekken
         callback_handler.on_information_gathering_start()
         conversations = self._run_conversation(
             conv_simulator=self.conv_simulator,
@@ -386,6 +408,7 @@ class StormKnowledgeCurationModule(KnowledgeCurationModule):
 
         information_table = StormInformationTable(conversations)
         callback_handler.on_information_gathering_end()
+        
         if return_conversation_log:
             return information_table, StormInformationTable.construct_log_dict(
                 conversations

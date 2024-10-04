@@ -1,6 +1,8 @@
+# Importeer benodigde modules voor type hints en dspy functionaliteit
 import dspy
 from typing import Union, List
 
+# Importeer hulpfuncties en datastructuren
 from .callback import BaseCallbackHandler
 from .collaborative_storm_utils import (
     trim_output_after_hint,
@@ -14,35 +16,45 @@ from ...interface import Information
 
 
 class QuestionToQuery(dspy.Signature):
-    """You want to answer the question or support a claim using Google search. What do you type in the search box?
-    The question is raised in a round table discussion on a topic. The question may or may not focus on the topic itself.
-    Write the queries you will use in the following format:
-    - query 1
-    - query 2
-    ...
-    - query n"""
+    """
+    Definieert de structuur voor het omzetten van een vraag naar zoekquery's.
+    
+    Doel: Genereer effectieve zoekquery's voor het beantwoorden van een vraag of ondersteunen van een claim.
+    
+    Aanname: De vraag is gesteld in de context van een rondetafelgesprek over een bepaald onderwerp.
+    Beperking: De output moet het gespecificeerde queryformaat volgen.
+    """
 
-    topic = dspy.InputField(prefix="Topic context:", format=str)
+    topic = dspy.InputField(prefix="Onderwerp context:", format=str)
     question = dspy.InputField(
-        prefix="I want to collect information about: ", format=str
+        prefix="Ik wil informatie verzamelen over: ", format=str
     )
-    queries = dspy.OutputField(prefix="Queries: \n", format=str)
+    queries = dspy.OutputField(prefix="Query's: \n", format=str)
 
 
 class AnswerQuestion(dspy.Signature):
-    """You are an expert who can use information effectively. You have gathered the related information and will now use the information to form a response.
-    Make your response as informative as possible and make sure every sentence is supported by the gathered information.
-    If [Gathered information] is not directly related to the [Topic] and [Question], provide the most relevant answer you can based on the available information, and explain any limitations or gaps.
-    Use [1], [2], ..., [n] in line (for example, "The capital of the United States is Washington, D.C.[1][3].").
-    You DO NOT need to include a References or Sources section to list the sources at the end. The style of writing should be formal.
+    """
+    Definieert de structuur voor het beantwoorden van een vraag met verzamelde informatie.
+    
+    Doel: Genereer een informatief antwoord op basis van verzamelde gegevens.
+    
+    Aannames:
+    - De expert kan effectief informatie gebruiken.
+    - Elke zin in het antwoord moet onderbouwd zijn met verzamelde informatie.
+    
+    Beperkingen:
+    - Bij irrelevante informatie moet het beste mogelijke antwoord gegeven worden.
+    - Citaties moeten inline gebruikt worden met [1], [2], etc.
+    - Geen aparte bronnenlijst nodig.
+    - Schrijfstijl moet formeel zijn, tenzij anders aangegeven.
     """
 
-    topic = dspy.InputField(prefix="Topic you are discussing about:", format=str)
-    question = dspy.InputField(prefix="You want to provide insight on: ", format=str)
-    info = dspy.InputField(prefix="Gathered information:\n", format=str)
-    style = dspy.InputField(prefix="Style of your response should be:", format=str)
+    topic = dspy.InputField(prefix="Onderwerp waarover u discussieert:", format=str)
+    question = dspy.InputField(prefix="U wilt inzicht geven over: ", format=str)
+    info = dspy.InputField(prefix="Verzamelde informatie:\n", format=str)
+    style = dspy.InputField(prefix="Stijl van uw antwoord moet zijn:", format=str)
     answer = dspy.OutputField(
-        prefix="Now give your response. (Try to use as many different sources as possible and do not hallucinate.)",
+        prefix="Geef nu uw antwoord. (Probeer zoveel mogelijk verschillende bronnen te gebruiken en niet te hallucineren.)",
         format=str,
     )
 
@@ -55,6 +67,14 @@ class AnswerQuestionModule(dspy.Module):
         question_answering_lm: Union[dspy.dsp.LM, dspy.dsp.HFModel],
         logging_wrapper: LoggingWrapper,
     ):
+        """
+        Initialiseert de module voor het beantwoorden van vragen.
+        
+        :param retriever: Module voor het ophalen van informatie
+        :param max_search_queries: Maximaal aantal zoekquery's
+        :param question_answering_lm: Taalmodel voor vraagbeantwoording
+        :param logging_wrapper: Wrapper voor logging
+        """
         super().__init__()
         self.question_answering_lm = question_answering_lm
         self.question_to_query = dspy.Predict(QuestionToQuery)
@@ -64,27 +84,35 @@ class AnswerQuestionModule(dspy.Module):
         self.logging_wrapper = logging_wrapper
 
     def retrieve_information(self, topic, question):
-        # decompose question to queries
+        """
+        Haalt relevante informatie op voor een gegeven vraag.
+        
+        :param topic: Het onderwerp van de vraag
+        :param question: De te beantwoorden vraag
+        :return: Een tuple met query's en zoekresultaten
+        """
+        # Genereer zoekquery's op basis van de vraag
         with self.logging_wrapper.log_event(
             f"AnswerQuestionModule.question_to_query ({hash(question)})"
         ):
             with dspy.settings.context(lm=self.question_answering_lm):
                 queries = self.question_to_query(topic=topic, question=question).queries
-            queries = trim_output_after_hint(queries, hint="Queries:")
+            queries = trim_output_after_hint(queries, hint="Query's:")
             queries = [
                 q.replace("-", "").strip().strip('"').strip('"').strip()
                 for q in queries.split("\n")
             ]
             queries = queries[: self.max_search_queries]
         self.logging_wrapper.add_query_count(count=len(queries))
+
+        # Haal informatie op met de gegenereerde query's
         with self.logging_wrapper.log_event(
             f"AnswerQuestionModule.retriever.retrieve ({hash(question)})"
         ):
-            # retrieve information using retriever
             searched_results: List[Information] = self.retriever.retrieve(
                 list(set(queries)), exclude_urls=[]
             )
-        # update storm information meta to include the question
+        # Voeg de vraag toe aan de metadata van de zoekresultaten
         for storm_info in searched_results:
             storm_info.meta["question"] = question
         return queries, searched_results
@@ -98,23 +126,16 @@ class AnswerQuestionModule(dspy.Module):
         callback_handler: BaseCallbackHandler = None,
     ):
         """
-        Processes a topic and question to generate a response with relevant information and citations.
+        Verwerkt een onderwerp en vraag om een antwoord te genereren met relevante informatie en citaties.
 
-        Args:
-            topic (str): The topic of interest.
-            question (str): The specific question related to the topic.
-            mode (str, optional): Mode of summarization. 'brief' takes only the first snippet of each Information.
-                                'extensive' adds snippets iteratively until the word limit is reached. Defaults to 'brief'.
-
-        Returns:
-            dspy.Prediction: An object containing the following:
-                - question (str): the question to answer
-                - queries (List[str]): List of query strings used for information retrieval.
-                - raw_retrieved_info (List[Information]): List of Information instances retrieved.
-                - cited_info (Dict[int, Information]): Dictionary of cited Information instances, indexed by their citation number.
-                - response (str): The generated response string with inline citations.
+        :param topic: Het onderwerp van interesse
+        :param question: De specifieke vraag gerelateerd aan het onderwerp
+        :param mode: Modus van samenvatting ('brief' of 'extensive')
+        :param style: Gewenste stijl van het antwoord
+        :param callback_handler: Optionele callback handler voor voortgangsrapportage
+        :return: dspy.Prediction object met gegenereerd antwoord en metadata
         """
-        # retrieve information
+        # Haal relevante informatie op
         if callback_handler is not None:
             callback_handler.on_expert_information_collection_start()
         queries, searched_results = self.retrieve_information(
@@ -122,12 +143,14 @@ class AnswerQuestionModule(dspy.Module):
         )
         if callback_handler is not None:
             callback_handler.on_expert_information_collection_end(searched_results)
-        # format information string for answer generation
+
+        # Formatteer de opgehaalde informatie voor antwoordgeneratie
         info_text, index_to_information_mapping = format_search_results(
             searched_results, mode=mode
         )
-        answer = "Sorry, there is insufficient information to answer the question."
-        # generate answer to the question
+        answer = "Sorry, er is onvoldoende informatie om de vraag te beantwoorden."
+
+        # Genereer een antwoord als er informatie beschikbaar is
         if info_text:
             with self.logging_wrapper.log_event(
                 f"AnswerQuestionModule.answer_question ({hash(question)})"
@@ -143,13 +166,14 @@ class AnswerQuestionModule(dspy.Module):
                     )
                     answer = trim_output_after_hint(
                         answer,
-                        hint="Now give your response. (Try to use as many different sources as possible and do not hallucinate.)",
+                        hint="Geef nu uw antwoord. (Probeer zoveel mogelijk verschillende bronnen te gebruiken en niet te hallucineren.)",
                     )
-                    # enforce single citation index bracket. [1, 2] -> [1][2]
+                    # Zorg voor consistente citatienotatie: [1, 2] -> [1][2]
                     answer = separate_citations(answer)
                     if callback_handler is not None:
                         callback_handler.on_expert_utterance_generation_end()
-        # construct cited search result
+
+        # Extraheer geciteerde informatie uit het antwoord
         cited_searched_results = extract_cited_storm_info(
             response=answer, index_to_storm_info=index_to_information_mapping
         )

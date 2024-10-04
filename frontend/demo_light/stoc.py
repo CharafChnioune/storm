@@ -1,43 +1,47 @@
 """https://github.com/arnaudmiribel/stoc"""
 
 import re
-
 import streamlit as st
 import unidecode
 
+# CSS om links in de inhoudsopgave te verbergen
 DISABLE_LINK_CSS = """
 <style>
 a.toc {
     color: inherit;
-    text-decoration: none; /* no underline */
+    text-decoration: none; /* geen onderstreping */
 }
 </style>"""
 
 
 class stoc:
     def __init__(self):
+        # Lijst om inhoudsopgave-items op te slaan
         self.toc_items = list()
 
     def h1(self, text: str, write: bool = True):
+        # Voeg een h1 kop toe aan de pagina en de inhoudsopgave
         if write:
             st.write(f"# {text}")
         self.toc_items.append(("h1", text))
 
     def h2(self, text: str, write: bool = True):
+        # Voeg een h2 kop toe aan de pagina en de inhoudsopgave
         if write:
             st.write(f"## {text}")
         self.toc_items.append(("h2", text))
 
     def h3(self, text: str, write: bool = True):
+        # Voeg een h3 kop toe aan de pagina en de inhoudsopgave
         if write:
             st.write(f"### {text}")
         self.toc_items.append(("h3", text))
 
     def toc(self, expander):
+        # Genereer en toon de inhoudsopgave
         st.write(DISABLE_LINK_CSS, unsafe_allow_html=True)
-        # st.sidebar.caption("Table of contents")
         if expander is None:
-            expander = st.sidebar.expander("**Table of contents**", expanded=True)
+            expander = st.sidebar.expander("**Inhoudsopgave**", expanded=True)
         with expander:
             with st.container(height=600, border=False):
                 markdown_toc = ""
@@ -48,38 +52,33 @@ class stoc:
                             + "- "
                             + f'<a href="#{normalize(title)}" class="toc"> {title}</a> \n'
                     )
-                # st.sidebar.write(markdown_toc, unsafe_allow_html=True)
                 st.write(markdown_toc, unsafe_allow_html=True)
 
     @classmethod
     def get_toc(cls, markdown_text: str, topic=""):
         def increase_heading_depth_and_add_top_heading(markdown_text, new_top_heading):
+            # Verhoog de diepte van alle koppen en voeg een nieuwe topkop toe
             lines = markdown_text.splitlines()
-            # Increase the depth of each heading by adding an extra '#'
             increased_depth_lines = ['#' + line if line.startswith('#') else line for line in lines]
-            # Add the new top-level heading at the beginning
             increased_depth_lines.insert(0, f"# {new_top_heading}")
-            # Re-join the modified lines back into a single string
-            modified_text = '\n'.join(increased_depth_lines)
-            return modified_text
+            return '\n'.join(increased_depth_lines)
 
         if topic:
             markdown_text = increase_heading_depth_and_add_top_heading(markdown_text, topic)
+        
+        # Genereer inhoudsopgave uit markdown tekst
         toc = []
         for line in markdown_text.splitlines():
             if line.startswith('#'):
-                # Remove the '#' characters and strip leading/trailing spaces
                 heading_text = line.lstrip('#').strip()
-                # Create slug (lowercase, spaces to hyphens, remove non-alphanumeric characters)
                 slug = re.sub(r'[^a-zA-Z0-9\s-]', '', heading_text).lower().replace(' ', '-')
-                # Determine heading level for indentation
                 level = line.count('#') - 1
-                # Add to the table of contents
                 toc.append('  ' * level + f'- [{heading_text}](#{slug})')
         return '\n'.join(toc)
 
     @classmethod
     def from_markdown(cls, text: str, expander=None):
+        # Maak een inhoudsopgave van markdown tekst
         self = cls()
         for line in text.splitlines():
             if line.startswith("###"):
@@ -88,16 +87,17 @@ class stoc:
                 self.h2(line[2:], write=False)
             elif line.startswith("#"):
                 self.h1(line[1:], write=False)
-        # customize markdown font size
+        
+        # Pas lettergrootte aan voor verschillende elementen
         custom_css = """
         <style>
-            /* Adjust the font size for headings */
+            /* Pas de lettergrootte aan voor koppen */
             h1 { font-size: 28px; }
             h2 { font-size: 24px; }
             h3 { font-size: 22px; }
             h4 { font-size: 20px; }
             h5 { font-size: 18px; }
-            /* Adjust the font size for normal text */
+            /* Pas de lettergrootte aan voor normale tekst */
             p { font-size: 18px; }
         </style>
         """
@@ -109,21 +109,21 @@ class stoc:
 
 def normalize(s):
     """
-    Normalize titles as valid HTML ids for anchors
+    Normaliseer titels als geldige HTML-id's voor ankers
     >>> normalize("it's a test to spot how Things happ3n héhé")
     "it-s-a-test-to-spot-how-things-happ3n-h-h"
     """
 
-    # Replace accents with "-"
+    # Vervang accenten door "-"
     s_wo_accents = unidecode.unidecode(s)
     accents = [s for s in s if s not in s_wo_accents]
     for accent in accents:
         s = s.replace(accent, "-")
 
-    # Lowercase
+    # Zet om naar kleine letters
     s = s.lower()
 
-    # Keep only alphanum and remove "-" suffix if existing
+    # Behoud alleen alfanumerieke tekens en verwijder "-" aan het einde
     normalized = (
         "".join([char if char.isalnum() else "-" for char in s]).strip("-").lower()
     )

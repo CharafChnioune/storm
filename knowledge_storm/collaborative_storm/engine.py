@@ -16,16 +16,16 @@ from .modules.warmstart_hierarchical_chat import WarmStartModule
 from ..dataclass import ConversationTurn, KnowledgeBase
 from ..interface import LMConfigs, Agent
 from ..logging_wrapper import LoggingWrapper
-from ..lm import OpenAIModel, AzureOpenAIModel, TogetherClient
+from ..lm import OpenAIModel, AzureOpenAIModel, TogetherClient, OllamaClient
 from ..rm import BingSearch
 
 
 class CollaborativeStormLMConfigs(LMConfigs):
-    """Configurations for LLM used in different parts of Co-STORM.
+    """Configuraties voor LLM gebruikt in verschillende delen van Co-STORM.
 
-    Given that different parts in Co-STORM framework have different complexity, we use different LLM configurations
-    to achieve a balance between quality and efficiency. If no specific configuration is provided, we use the default
-    setup in the paper.
+    Aangezien verschillende onderdelen in het Co-STORM framework verschillende complexiteit hebben,
+    gebruiken we verschillende LLM-configuraties om een balans te bereiken tussen kwaliteit en efficiëntie.
+    Als er geen specifieke configuratie wordt opgegeven, gebruiken we de standaardinstelling uit het paper.
     """
 
     def __init__(self):
@@ -38,11 +38,20 @@ class CollaborativeStormLMConfigs(LMConfigs):
 
     def init(
         self,
-        lm_type: Literal["openai", "azure", "together"],
+        lm_type: Literal["openai", "azure", "together", "ollama"],
         temperature: Optional[float] = 1.0,
         top_p: Optional[float] = 0.9,
     ):
+        """
+        Initialiseert de LLM-configuraties op basis van het opgegeven type.
+        
+        Args:
+            lm_type: Het type LLM-provider ("openai", "azure", "together" of "ollama")
+            temperature: De temperatuur voor sampling (standaard 1.0)
+            top_p: De top-p waarde voor sampling (standaard 0.9)
+        """
         if lm_type and lm_type == "openai":
+            # Configuratie voor OpenAI modellen
             openai_kwargs = {
                 "api_key": os.getenv("OPENAI_API_KEY"),
                 "api_provider": "openai",
@@ -69,6 +78,7 @@ class CollaborativeStormLMConfigs(LMConfigs):
                 model="gpt-4o-2024-05-13", max_tokens=1000, **openai_kwargs
             )
         elif lm_type and lm_type == "azure":
+            # Configuratie voor Azure OpenAI modellen
             azure_kwargs = {
                 "api_key": os.getenv("AZURE_API_KEY"),
                 "temperature": temperature,
@@ -95,6 +105,7 @@ class CollaborativeStormLMConfigs(LMConfigs):
                 model="gpt-4o", max_tokens=1000, **azure_kwargs, model_type="chat"
             )
         elif lm_type and lm_type == "together":
+            # Configuratie voor Together.ai modellen
             together_kwargs = {
                 "api_key": os.getenv("TOGETHER_API_KEY"),
                 "temperature": temperature,
@@ -136,30 +147,58 @@ class CollaborativeStormLMConfigs(LMConfigs):
                 model_type="chat",
                 **together_kwargs,
             )
+        elif lm_type and lm_type == "ollama":
+            # Configuratie voor Ollama modellen
+            ollama_kwargs = {
+                "model": "hermes3:8b-llama3.1-fp16",
+                "port": 11434,
+                "url": "http://localhost",
+                "temperature": temperature,
+                "top_p": top_p,
+                "max_tokens": 1000,
+            }
+            self.question_answering_lm = OllamaClient(**ollama_kwargs)
+            self.discourse_manage_lm = OllamaClient(**ollama_kwargs)
+            self.utterance_polishing_lm = OllamaClient(**ollama_kwargs)
+            self.warmstart_outline_gen_lm = OllamaClient(**ollama_kwargs)
+            self.question_asking_lm = OllamaClient(**ollama_kwargs)
+            self.knowledge_base_lm = OllamaClient(**ollama_kwargs)
         else:
             raise Exception(
-                "No valid OpenAI API provider is provided. Cannot use default LLM configurations."
+                "Geen geldige LLM-provider opgegeven. Kan standaard LLM-configuraties niet gebruiken."
             )
 
     def set_question_answering_lm(self, model: Union[dspy.dsp.LM, dspy.dsp.HFModel]):
+        """Stelt het model in voor het beantwoorden van vragen."""
         self.question_answering_lm = model
 
     def set_discourse_manage_lm(self, model: Union[dspy.dsp.LM, dspy.dsp.HFModel]):
+        """Stelt het model in voor het beheren van het gesprek."""
         self.discourse_manage_lm = model
 
     def set_utterance_polishing_lm(self, model: Union[dspy.dsp.LM, dspy.dsp.HFModel]):
+        """Stelt het model in voor het polijsten van uitspraken."""
         self.utterance_polishing_lm = model
 
     def set_warmstart_outline_gen_lm(self, model: Union[dspy.dsp.LM, dspy.dsp.HFModel]):
+        """Stelt het model in voor het genereren van warmstart-outlines."""
         self.warmstart_outline_gen_lm = model
 
     def set_question_asking_lm(self, model: Union[dspy.dsp.LM, dspy.dsp.HFModel]):
+        """Stelt het model in voor het stellen van vragen."""
         self.question_asking_lm = model
 
     def set_knowledge_base_lm(self, model: Union[dspy.dsp.LM, dspy.dsp.HFModel]):
+        """Stelt het model in voor de kennisbank."""
         self.knowledge_base_lm = model
 
     def collect_and_reset_lm_usage(self):
+        """
+        Verzamelt gebruiksstatistieken van alle LLM's en reset deze.
+        
+        Returns:
+            dict: Een dictionary met gebruiksstatistieken per LLM.
+        """
         lm_usage = {}
         for attr_name in self.__dict__:
             if "_lm" in attr_name and hasattr(
@@ -175,10 +214,10 @@ class CollaborativeStormLMConfigs(LMConfigs):
 
     def to_dict(self):
         """
-        Converts the CollaborativeStormLMConfigs instance to a dictionary representation.
+        Zet de CollaborativeStormLMConfigs instantie om naar een dictionary representatie.
 
         Returns:
-            dict: The dictionary representation of the CollaborativeStormLMConfigs.
+            dict: De dictionary representatie van de CollaborativeStormLMConfigs.
         """
         config_dict = {}
         for attr_name in self.__dict__:
@@ -188,104 +227,104 @@ class CollaborativeStormLMConfigs(LMConfigs):
 
 @dataclass
 class RunnerArgument:
-    """Arguments for controlling the STORM Wiki pipeline."""
+    """Argumenten voor het controleren van de STORM Wiki pipeline."""
 
     topic: str = field(
-        metadata={"help": "Topic of discourse"},
+        metadata={"help": "Onderwerp van het gesprek"},
     )
     retrieve_top_k: int = field(
         default=10,
-        metadata={"help": "retrieve top k results for each query in retriever"},
+        metadata={"help": "Haal top k resultaten op voor elke query in de retriever"},
     )
     max_search_queries: int = field(
         default=2,
         metadata={
-            "help": "Maximum number of search queries to consider for each question."
+            "help": "Maximaal aantal zoekqueries om te overwegen voor elke vraag."
         },
     )
     total_conv_turn: int = field(
         default=20,
-        metadata={"help": "Maximum number turn in conversation."},
+        metadata={"help": "Maximaal aantal beurten in het gesprek."},
     )
     max_search_thread: int = field(
         default=5,
-        metadata={"help": "Maximum number of parallel thread for retriever"},
+        metadata={"help": "Maximaal aantal parallelle threads voor de retriever"},
     )
     max_search_queries_per_turn: int = field(
         default=3,
-        metadata={"help": "Maximum number of search queries to consider in each turn."},
+        metadata={"help": "Maximaal aantal zoekqueries om te overwegen in elke beurt."},
     )
     warmstart_max_num_experts: int = field(
         default=3,
         metadata={
-            "help": "Max number of experts in perspective guided QA in warm start process"
+            "help": "Max aantal experts in perspectief-geleide QA in warm start proces"
         },
     )
     warmstart_max_turn_per_experts: int = field(
         default=2,
-        metadata={"help": "Max number of turns per perspective in warm start process"},
+        metadata={"help": "Max aantal beurten per perspectief in warm start proces"},
     )
     warmstart_max_thread: int = field(
         default=3,
         metadata={
-            "help": "Max number thread for parallel perspective guided QA in warm start process"
+            "help": "Max aantal threads voor parallelle perspectief-geleide QA in warm start proces"
         },
     )
     max_thread_num: int = field(
         default=10,
         metadata={
-            "help": "Maximum number of threads to use. "
-            "Consider reducing it if keep getting 'Exceed rate limit' error when calling LM API."
+            "help": "Maximaal aantal te gebruiken threads. "
+            "Overweeg dit te verlagen als je blijft 'Exceed rate limit' fouten krijgt bij het aanroepen van de LM API."
         },
     )
     max_num_round_table_experts: int = field(
         default=2,
-        metadata={"help": "Max number of active experts in round table discussion."},
+        metadata={"help": "Max aantal actieve experts in ronde tafel discussie."},
     )
     moderator_override_N_consecutive_answering_turn: int = field(
         default=3,
         metadata={
-            "help": "Number of consecutive experts answering turn before moderator override the conversation"
+            "help": "Aantal opeenvolgende expert antwoordbeurten voordat de moderator het gesprek overneemt"
         },
     )
     node_expansion_trigger_count: int = field(
         default=10,
         metadata={
-            "help": "Trigger node expansion for node that contain more than N snippets"
+            "help": "Trigger node-uitbreiding voor nodes die meer dan N snippets bevatten"
         },
     )
     disable_moderator: bool = field(
         default=False,
-        metadata={"help": "If True, disable moderator."},
+        metadata={"help": "Indien True, schakel moderator uit."},
     )
     disable_multi_experts: bool = field(
         default=False,
-        metadata={"help": "If True, disable moderator."},
+        metadata={"help": "Indien True, schakel meerdere experts uit."},
     )
     rag_only_baseline_mode: bool = field(
         default=False,
-        metadata={"help": "If True, switch to rag online baseline mode"},
+        metadata={"help": "Indien True, schakel over naar rag online baseline modus"},
     )
 
     def to_dict(self):
         """
-        Converts the RunnerArgument instance to a dictionary representation.
+        Zet de RunnerArgument instantie om naar een dictionary representatie.
 
         Returns:
-            dict: The dictionary representation of the RunnerArgument.
+            dict: De dictionary representatie van de RunnerArgument.
         """
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data):
         """
-        Constructs a RunnerArgument instance from a dictionary representation.
+        Construeert een RunnerArgument instantie uit een dictionary representatie.
 
         Args:
-            data (dict): The dictionary representation of the RunnerArgument.
+            data (dict): De dictionary representatie van de RunnerArgument.
 
         Returns:
-            RunnerArgument: The constructed RunnerArgument instance.
+            RunnerArgument: De geconstrueerde RunnerArgument instantie.
         """
         return cls(**data)
 
@@ -293,21 +332,21 @@ class RunnerArgument:
 @dataclass
 class TurnPolicySpec:
     """
-    Represents the policy specifications for determining the behavior of a conversation turn.
+    Representeert de beleidsspecificaties voor het bepalen van het gedrag van een gespreksbeurt.
 
-    Attributes:
+    Attributen:
         should_reorganize_knowledge_base (bool):
-            A flag that indicates whether the knowledge base should be reorganized after the current turn.
+            Een vlag die aangeeft of de kennisbank moet worden gereorganiseerd na de huidige beurt.
 
         should_update_experts_list (bool):
-            A flag that indicates whether the list of experts should be updated based on the conversation context.
+            Een vlag die aangeeft of de lijst met experts moet worden bijgewerkt op basis van de gesprekscontext.
 
         should_polish_utterance (bool):
-            A flag that indicates whether the generated utterance should be polished (e.g., refined or rephrased) before it is used in the conversation.
+            Een vlag die aangeeft of de gegenereerde uiting moet worden gepolijst (bijv. verfijnd of herformuleerd) voordat deze in het gesprek wordt gebruikt.
 
         agent (Agent):
-            The `Agent` responsible for generating utterances or responses during the conversation turn.
-            This agent interacts with the knowledge base and the conversation history to produce responses.
+            De `Agent` die verantwoordelijk is voor het genereren van uitingen of antwoorden tijdens de gespreksbeurt.
+            Deze agent interacteert met de kennisbank en de gespreksgeschiedenis om antwoorden te produceren.
     """
 
     should_reorganize_knowledge_base: bool = False
@@ -325,17 +364,17 @@ class DiscourseManager:
         rm: dspy.Retrieve,
         callback_handler: BaseCallbackHandler,
     ):
-        # parameter management
+        # parameter beheer
         self.lm_config = lm_config
         self.runner_argument = runner_argument
         self.logging_wrapper = logging_wrapper
         self.callback_handler = callback_handler
         self.rm = rm
-        # role management
+        # rol beheer
         self.experts: List[CoStormExpert] = []
         self.simulated_user: SimulatedUser = SimulatedUser(
             topic=self.runner_argument.topic,
-            role_name="Guest",
+            role_name="Gast",
             role_description="",
             intent=None,
             lm_config=self.lm_config,
@@ -364,8 +403,8 @@ class DiscourseManager:
         )
         self.general_knowledge_provider = CoStormExpert(
             topic=self.runner_argument.topic,
-            role_name="General Knowledge Provider",
-            role_description="Focus on broadly covering the basic facts about the question.",
+            role_name="Algemene Kennisaanbieder",
+            role_description="Focus op het breed behandelen van de basisfeiten over de vraag.",
             lm_config=self.lm_config,
             runner_argument=self.runner_argument,
             logging_wrapper=self.logging_wrapper,
@@ -378,6 +417,7 @@ class DiscourseManager:
         self.next_turn_moderator_override = False
 
     def serialize_experts(self) -> List[Dict]:
+        """Serialiseert de lijst van experts naar een lijst van dictionaries."""
         return [
             {
                 "topic": expert.topic,
@@ -388,6 +428,7 @@ class DiscourseManager:
         ]
 
     def deserialize_experts(self, data: List[Dict]):
+        """Deserialiseert een lijst van dictionaries naar CoStormExpert objecten."""
         for expert_data in data:
             self.experts.append(
                 CoStormExpert(
@@ -405,6 +446,12 @@ class DiscourseManager:
     def _should_generate_question(
         self, conversation_history: List[ConversationTurn]
     ) -> bool:
+        """
+        Bepaalt of er een nieuwe vraag moet worden gegenereerd op basis van de gespreksgeschiedenis.
+        
+        Returns:
+            bool: True als er een nieuwe vraag moet worden gegenereerd, anders False.
+        """
         consecutive_non_questioning_turn = 0
         for conv_turn in reversed(conversation_history):
             if conv_turn.utterance_type not in [
@@ -420,6 +467,15 @@ class DiscourseManager:
         )
 
     def _parse_expert_names_to_agent(self, expert_descriptions: Union[str, List[str]]):
+        """
+        Zet expert beschrijvingen om naar CoStormExpert objecten.
+        
+        Args:
+            expert_descriptions: Een string of lijst van strings met expert beschrijvingen.
+        
+        Returns:
+            List[CoStormExpert]: Een lijst van CoStormExpert objecten.
+        """
         if type(expert_descriptions) == str:
             expert_descriptions = [expert_descriptions]
         agents: CoStormExpert = []
@@ -441,6 +497,13 @@ class DiscourseManager:
         return agents
 
     def _update_expert_list_from_utterance(self, focus: str, background_info: str):
+        """
+        Werkt de lijst van experts bij op basis van de focus en achtergrondinformatie.
+        
+        Args:
+            focus: De huidige focus van het gesprek.
+            background_info: Achtergrondinformatie voor het genereren van experts.
+        """
         expert_names = self.generate_expert_module(
             topic=self.runner_argument.topic,
             background_info=background_info,
@@ -450,6 +513,12 @@ class DiscourseManager:
         self.experts = self._parse_expert_names_to_agent(expert_names)
 
     def _is_last_turn_questioning(self, conversation_history: List[ConversationTurn]):
+        """
+        Controleert of de laatste beurt in de gespreksgeschiedenis een vraag was.
+        
+        Returns:
+            bool: True als de laatste beurt een vraag was, anders False.
+        """
         return conversation_history and conversation_history[-1].utterance_type in [
             "Original Question",
             "Information Request",
@@ -462,6 +531,18 @@ class DiscourseManager:
         simulate_user=False,
         simulate_user_intent: str = None,
     ) -> TurnPolicySpec:
+        """
+        Bepaalt het beleid voor de volgende gespreksbeurt.
+        
+        Args:
+            conversation_history: De geschiedenis van het gesprek.
+            dry_run: Indien True, voert een droge run uit zonder de interne staat te wijzigen.
+            simulate_user: Indien True, simuleert gebruikersgedrag.
+            simulate_user_intent: De gesimuleerde intentie van de gebruiker.
+        
+        Returns:
+            TurnPolicySpec: Het beleid voor de volgende gespreksbeurt.
+        """
         next_turn_policy = TurnPolicySpec()
         if simulate_user:
             self.simulated_user.intent = simulate_user_intent
@@ -532,6 +613,12 @@ class CoStormRunner:
         )
 
     def to_dict(self):
+        """
+        Zet de CoStormRunner instantie om naar een dictionary representatie.
+        
+        Returns:
+            dict: Een dictionary met de huidige staat van de CoStormRunner.
+        """
         return {
             "runner_argument": self.runner_argument.to_dict(),
             "lm_config": self.lm_config.to_dict(),
@@ -547,7 +634,16 @@ class CoStormRunner:
 
     @classmethod
     def from_dict(cls, data):
-        # FIXME: does not use the lm_config data but naively use default setting
+        """
+        Construeert een CoStormRunner instantie uit een dictionary representatie.
+        
+        Args:
+            data: Een dictionary met de staat van een CoStormRunner.
+        
+        Returns:
+            CoStormRunner: Een nieuwe CoStormRunner instantie.
+        """
+        # FIXME: gebruikt niet de lm_config data maar naïef de standaardinstelling
         lm_config = CollaborativeStormLMConfigs()
         lm_config.init(lm_type=os.getenv("OPENAI_API_TYPE"))
         costorm_runner = cls(
@@ -572,15 +668,15 @@ class CoStormRunner:
 
     def warm_start(self):
         """
-        Warm start co-storm system to conduct background information search in order to build shared conceptual space with user.
-        This stage is a mini-STORM, spawning multiple LLM agent with different perspective and perform multi-round conversation.
-        The knowledge base (i.e. mind map) will be initialize using the collected information.
+        Warm start co-storm systeem om achtergrond informatie zoeken uit te voeren om een gedeelde conceptuele ruimte met de gebruiker op te bouwen.
+        Deze fase is een mini-STORM, waarbij meerdere LLM-agenten met verschillende perspectieven worden ingezet en een meerdere-ronden gesprek wordt gevoerd.
+        De kennisbank (d.w.z. mind map) wordt geïnitialiseerd met de verzamelde informatie.
 
-        It will also generate a first draft of report and use it to produce an engaging and concise conversation presented to the
-        user to catch up with system's knowledge about the topic.
+        Het genereert ook een eerste conceptrapport en gebruikt dit om een boeiend en beknopt gesprek te produceren dat aan de gebruiker wordt gepresenteerd
+        om bij te blijven met de kennis van het systeem over het onderwerp.
         """
         with self.logging_wrapper.log_pipeline_stage(
-            pipeline_stage=f"warm start stage"
+            pipeline_stage=f"warm start fase"
         ):
             if not self.runner_argument.rag_only_baseline_mode:
                 warm_start_module = WarmStartModule(
@@ -627,15 +723,15 @@ class CoStormRunner:
 
     def generate_report(self) -> str:
         """
-        Generate report leveraging organized collected information in the knowledge base (i.e. mind map).
-        The article generation follows the paradigm in STORM paper, where it considers mind map nodes as section names, and generate the report section by section.
+        Genereert een rapport op basis van de georganiseerde verzamelde informatie in de kennisbank (d.w.z. mind map).
+        De artikelgeneratie volgt het paradigma in het STORM-paper, waarbij het de mind map-nodes beschouwt als sectienamen en het rapport sectie voor sectie genereert.
 
         Returns:
-            str: A string representing the report, with "#" "##" indicating hierarchical sections and [1][2] indicating references.
+            str: Een string die het rapport vertegenwoordigt, met "#" "##" die hiërarchische secties aangeven en [1][2] die referenties aangeven.
         """
-        with self.logging_wrapper.log_pipeline_stage("report generation stage"):
+        with self.logging_wrapper.log_pipeline_stage("rapport generatie fase"):
             with self.logging_wrapper.log_event(
-                "report generation stage: generate report"
+                "rapport generatie fase: genereer rapport"
             ):
                 return self.knowledge_base.to_report()
 
@@ -649,33 +745,33 @@ class CoStormRunner:
         simulate_user_intent: str = "",
     ) -> ConversationTurn:
         """
-        Yields a single turn in the conversation flow.
+        Levert een enkele beurt in de gespreksflow op.
 
-        This method take a user input when user choose to inject an utterance or generates the next system utterance based on the current conversation history and defined discourse policies.
-        It handles updating the conversation history, managing expert lists, and interacting with the knowledge base.
-        Additionally, it logs each stage of the conversation for monitoring and debugging purposes.
+        Deze methode neemt een gebruikersinvoer wanneer de gebruiker ervoor kiest om een uiting in te voegen of genereert de volgende systeemuiting op basis van de huidige gespreksgeschiedenis en gedefinieerde gespreksbeleid.
+        Het handelt het bijwerken van de gespreksgeschiedenis af, beheert expertlijsten en interacteert met de kennisbank.
+        Daarnaast logt het elke fase van het gesprek voor monitoring en debugging doeleinden.
 
         Args:
-            user_utterance (str, optional): The input provided by the user. If provided, this utterance is added directly to the conversation history and returns with no further action.
-            simulate_user (bool, optional): This is designed for automatic experiments using a LLM agent to simulate user actions. Flag indicating whether to simulate user behavior. When set to `True`, the system will generate user intents based on predefined simulation logic. Defaults to `False`.
-            simulate_user_intent (str, optional): This is designed for automatic experiments using a LLM agent to simulate user actions. Specifies the intent to simulate for the user. This is used when `simulate_user` is `True` to guide the simulated user's responses,
+            user_utterance (str, optional): De input geleverd door de gebruiker. Indien verstrekt, wordt deze uiting direct toegevoegd aan de gespreksgeschiedenis en keert terug zonder verdere actie.
+            simulate_user (bool, optional): Dit is ontworpen voor automatische experimenten met behulp van een LLM-agent om gebruikersacties te simuleren. Vlag die aangeeft of gebruikersgedrag moet worden gesimuleerd. Wanneer ingesteld op `True`, zal het systeem gebruikersintenties genereren op basis van vooraf gedefinieerde simulatielogica. Standaard is `False`.
+            simulate_user_intent (str, optional): Dit is ontworpen voor automatische experimenten met behulp van een LLM-agent om gebruikersacties te simuleren. Specificeert de intentie om te simuleren voor de gebruiker. Dit wordt gebruikt wanneer `simulate_user` `True` is om de reacties van de gesimuleerde gebruiker te sturen.
 
         Returns:
-            ConversationTurn: An object representing the latest turn in the conversation.
+            ConversationTurn: Een object dat de laatste beurt in het gesprek vertegenwoordigt.
 
         Workflow:
-            1. User Utterance Handling
-                - If `user_utterance` is provided, it is appended to the `conversation_history`
+            1. Gebruikersuiting Afhandeling
+                - Als `user_utterance` is verstrekt, wordt het toegevoegd aan de `conversation_history`
 
-            2. System Utterance Generation
-                - If no `user_utterance` is provided, the method proceeds to generate the next system utterance.
-                - Determines the next turn policy by consulting the `discourse_manager` with the current conversation history.
-                - Generates a new utterance using the agent defined in the turn policy, leveraging the `knowledge_base` and `conversation_history`.
-                - If the turn policy indicates that the experts list should be updated, it updates the expert list based on the latest utterances.
+            2. Systeemuiting Generatie
+                - Als er geen `user_utterance` is verstrekt, gaat de methode verder met het genereren van de volgende systeemuiting.
+                - Bepaalt het volgende beurtbeleid door de `discourse_manager` te raadplegen met de huidige gespreksgeschiedenis.
+                - Genereert een nieuwe uiting met behulp van de agent gedefinieerd in het beurtbeleid, gebruikmakend van de `knowledge_base` en `conversation_history`.
+                - Als het beurtbeleid aangeeft dat de expertlijst moet worden bijgewerkt, werkt het de expertlijst bij op basis van de laatste uitingen.
 
-            4. Knowledge Base Update
-                - Inserts the new turn into the `knowledge_base`, optionally allowing the creation of new nodes or inserting under the root based on the `rag_only_baseline_mode` flag.
-                - If the turn policy specifies, it reorganizes the `knowledge_base` to maintain optimal structure and relevance.
+            4. Kennisbank Update
+                - Voegt de nieuwe beurt in in de `knowledge_base`, optioneel toestaan van het creëren van nieuwe nodes of invoegen onder de root op basis van de `rag_only_baseline_mode` vlag.
+                - Als het beurtbeleid het specificeert, reorganiseert het de `knowledge_base` om optimale structuur en relevantie te behouden.
         """
         last_conv_turn = self.conversation_history[-1]
         cur_turn_name = f"conv turn: {len(self.conversation_history) + 1}"

@@ -604,6 +604,42 @@ class OllamaClient(dspy.OllamaLocal):
         super().__init__(model=model, base_url=f"{url}:{port}", **kwargs)
         # Store additional kwargs for the generate method.
         self.kwargs = {**self.kwargs, **kwargs}
+        self._token_usage_lock = threading.Lock()
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+
+    def log_usage(self, response):
+        """Log the total tokens from the Ollama API response."""
+        if isinstance(response, list) and len(response) > 0:
+            # Neem aan dat de eerste item in de lijst de relevante informatie bevat
+            first_response = response[0]
+            if isinstance(first_response, dict):
+                self.prompt_tokens += len(first_response.get('prompt', '').split())
+                self.completion_tokens += len(first_response.get('response', '').split())
+        elif isinstance(response, dict):
+            # Bestaande logica voor dictionary responses
+            self.prompt_tokens += len(response.get('prompt', '').split())
+            self.completion_tokens += len(response.get('response', '').split())
+        else:
+            # Log een waarschuwing als de response een onverwacht formaat heeft
+            print(f"Waarschuwing: Onverwacht response formaat in log_usage: {type(response)}")
+
+    def get_usage_and_reset(self):
+        """Get the total tokens used and reset the token usage."""
+        usage = {
+            self.kwargs.get("model", "unknown"): {
+                "prompt_tokens": self.prompt_tokens,
+                "completion_tokens": self.completion_tokens,
+            }
+        }
+        self.prompt_tokens = 0
+        self.completion_tokens = 0
+        return usage
+
+    def __call__(self, prompt: str, **kwargs):
+        response = super().__call__(prompt, **kwargs)
+        self.log_usage(response)
+        return response
 
 
 class TGIClient(dspy.HFClientTGI):
@@ -765,7 +801,7 @@ class TogetherClient(dspy.HFModel):
             prompt = self.tokenizer.apply_chat_template(
                 [{"role": "user", "content": prompt}], tokenize=False
             )
-        # prompt = f"[INST]{prompt}[/INST]" if self.use_inst_template else prompt
+        # prompt = f"{prompt} " if self.use_inst_template else prompt
 
         if self.model_type == "chat":
             messages = [

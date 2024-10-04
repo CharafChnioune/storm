@@ -5,18 +5,20 @@ from typing import Set, Union
 from .collaborative_storm_utils import clean_up_section
 from ...dataclass import KnowledgeBase, KnowledgeNode
 
-
+# Deze klasse is verantwoordelijk voor het genereren van artikelsecties op basis van verzamelde informatie
 class ArticleGenerationModule(dspy.Module):
-    """Use the information collected from the information-seeking conversation to write a section."""
+    """Gebruik de informatie verzameld uit het informatiezoekende gesprek om een sectie te schrijven."""
 
     def __init__(
         self,
         engine: Union[dspy.dsp.LM, dspy.dsp.HFModel],
     ):
         super().__init__()
+        # Initialiseer de write_section functie met de WriteSection klasse
         self.write_section = dspy.Predict(WriteSection)
         self.engine = engine
 
+    # Deze methode verzamelt en formatteert de geciteerde informatie
     def _get_cited_information_string(
         self,
         all_citation_index: Set[int],
@@ -28,7 +30,8 @@ class ArticleGenerationModule(dspy.Module):
         for index in sorted(list(all_citation_index)):
             info = knowledge_base.info_uuid_to_info_dict[index]
             snippet = info.snippets[0]
-            info_text = f"[{index}]: {snippet} (Question: {info.meta['question']}. Query: {info.meta['query']})"
+            # Formatteer de informatie met index, snippet, vraag en zoekopdracht
+            info_text = f"[{index}]: {snippet} (Vraag: {info.meta['question']}. Zoekopdracht: {info.meta['query']})"
             cur_snippet_length = len(info_text.split())
             if cur_snippet_length + cur_word_count > max_words:
                 break
@@ -36,11 +39,13 @@ class ArticleGenerationModule(dspy.Module):
             information.append(info_text)
         return "\n".join(information)
 
+    # Deze methode genereert een sectie voor een gegeven onderwerp en kennisnode
     def gen_section(
         self, topic: str, node: KnowledgeNode, knowledge_base: KnowledgeBase
     ):
         if node is None or len(node.content) == 0:
             return ""
+        # Controleer of de sectie al is gegenereerd en niet opnieuw hoeft te worden gegenereerd
         if (
             node.synthesize_output is not None
             and node.synthesize_output
@@ -51,6 +56,7 @@ class ArticleGenerationModule(dspy.Module):
         information = self._get_cited_information_string(
             all_citation_index=all_citation_index, knowledge_base=knowledge_base
         )
+        # Gebruik de engine om de sectie te genereren
         with dspy.settings.context(lm=self.engine):
             synthesize_output = clean_up_section(
                 self.write_section(
@@ -61,34 +67,38 @@ class ArticleGenerationModule(dspy.Module):
         node.need_regenerate_synthesize_output = False
         return node.synthesize_output
 
+    # Deze methode genereert het volledige artikel door alle secties te combineren
     def forward(self, knowledge_base: KnowledgeBase):
         all_nodes = knowledge_base.collect_all_nodes()
         node_to_paragraph = {}
 
-        # Define a function to generate paragraphs for nodes
+        # Definieer een functie om paragrafen voor nodes te genereren
         def _node_generate_paragraph(node):
             node_gen_paragraph = self.gen_section(
                 topic=knowledge_base.topic, node=node, knowledge_base=knowledge_base
             )
             lines = node_gen_paragraph.split("\n")
+            # Verwijder de eerste regel als deze gelijk is aan de naam van de node
             if lines[0].strip().replace("*", "").replace("#", "") == node.name:
                 lines = lines[1:]
             node_gen_paragraph = "\n".join(lines)
             path = " -> ".join(node.get_path_from_root())
             return path, node_gen_paragraph
 
+        # Gebruik ThreadPoolExecutor voor parallelle verwerking
         with ThreadPoolExecutor(max_workers=5) as executor:
-            # Submit all tasks
+            # Dien alle taken in
             future_to_node = {
                 executor.submit(_node_generate_paragraph, node): node
                 for node in all_nodes
             }
 
-            # Collect the results as they complete
+            # Verzamel de resultaten zodra ze voltooid zijn
             for future in as_completed(future_to_node):
                 path, node_gen_paragraph = future.result()
                 node_to_paragraph[path] = node_gen_paragraph
 
+        # Recursieve hulpfunctie om de structuur van het artikel op te bouwen
         def helper(cur_root, level):
             to_return = []
             if cur_root is not None:
@@ -106,18 +116,18 @@ class ArticleGenerationModule(dspy.Module):
 
         return "\n".join(to_return)
 
-
+# Deze klasse definieert de structuur voor het schrijven van een Wikipedia-sectie
 class WriteSection(dspy.Signature):
-    """Write a Wikipedia section based on the collected information. You will be given the topic, the section you are writing and relevant information.
-    Each information will be provided with the raw content along with question and query lead to that information.
-    Here is the format of your writing:
-    Use [1], [2], ..., [n] in line (for example, "The capital of the United States is Washington, D.C.[1][3]."). You DO NOT need to include a References or Sources section to list the sources at the end.
+    """Schrijf een Wikipedia-sectie op basis van de verzamelde informatie. Je krijgt het onderwerp, de sectie die je schrijft en relevante informatie.
+    Elke informatie wordt geleverd met de ruwe inhoud samen met de vraag en zoekopdracht die tot die informatie hebben geleid.
+    Hier is het formaat van je schrijven:
+    Gebruik [1], [2], ..., [n] in de regel (bijvoorbeeld, "De hoofdstad van de Verenigde Staten is Washington, D.C.[1][3]."). Je hoeft GEEN Referenties of Bronnen sectie op te nemen om de bronnen aan het einde te vermelden.
     """
 
-    info = dspy.InputField(prefix="The collected information:\n", format=str)
-    topic = dspy.InputField(prefix="The topic of the page: ", format=str)
-    section = dspy.InputField(prefix="The section you need to write: ", format=str)
+    info = dspy.InputField(prefix="De verzamelde informatie:\n", format=str)
+    topic = dspy.InputField(prefix="Het onderwerp van de pagina: ", format=str)
+    section = dspy.InputField(prefix="De sectie die je moet schrijven: ", format=str)
     output = dspy.OutputField(
-        prefix="Write the section with proper inline citations (Start your writing. Don't include the page title, section name, or try to write other sections. Do not start the section with topic name.):\n",
+        prefix="Schrijf de sectie met juiste inline citaties (Begin met schrijven. Neem de paginatitel, sectienaam niet op en probeer geen andere secties te schrijven. Begin de sectie niet met de onderwerpnaam.):\n",
         format=str,
     )

@@ -12,42 +12,44 @@ from ...dataclass import KnowledgeNode, KnowledgeBase
 from ...encoder import get_text_embeddings
 from ...interface import Information
 
+# Deze module behandelt het invoegen van informatie in een kennisbank binnen het Co-STORM framework.
+# Het gebruikt een boomstructuur om informatie te organiseren op basis van semantische gelijkenis.
 
 class InsertInformation(dspy.Signature):
-    """Your job is to insert the given information to the knowledge base. The knowledge base is a tree based data structure to organize the collection information. Each knowledge node contains information derived from themantically similar question or intent.
-    To decide the best placement of the information, you will be navigated in this tree based data structure layer by layer.
-    You will be presented with the question and query leads to ththeis information, and tree structure.
+    """Je taak is om de gegeven informatie in de kennisbank in te voegen. De kennisbank is een boomgebaseerde datastructuur om verzamelde informatie te organiseren. Elke kennisnode bevat informatie afgeleid van semantisch vergelijkbare vragen of intenties.
+    Om de beste plaatsing van de informatie te bepalen, zul je laag voor laag door deze boomstructuur worden genavigeerd.
+    Je krijgt de vraag en zoekopdracht te zien die tot deze informatie hebben geleid, evenals de boomstructuur.
 
-    Output should strictly follow one of options presetned below with no other information.
-    - 'insert': to place the information under the current node.
-    - 'step: [child node name]': to step into a specified child node.
-    - 'create: [new child node name]': to create new child node and insert the info under it.
+    De output moet strikt een van de onderstaande opties volgen zonder andere informatie:
+    - 'insert': om de informatie onder de huidige node te plaatsen.
+    - 'step: [naam van kindnode]': om naar een specifieke kindnode te gaan.
+    - 'create: [naam van nieuwe kindnode]': om een nieuwe kindnode te maken en de info eronder in te voegen.
 
-    Example outputs:
+    Voorbeeldoutputs:
     - insert
     - step: node2
     - create: node3
     """
 
     intent = dspy.InputField(
-        prefix="Question and query leads to this info: ", format=str
+        prefix="Vraag en zoekopdracht die tot deze info leiden: ", format=str
     )
-    structure = dspy.InputField(prefix="Tree structure: \n", format=str)
-    choice = dspy.OutputField(prefix="Choice:\n", format=str)
+    structure = dspy.InputField(prefix="Boomstructuur: \n", format=str)
+    choice = dspy.OutputField(prefix="Keuze:\n", format=str)
 
 
 class InsertInformationCandidateChoice(dspy.Signature):
-    """Your job is to insert the given information to the knowledge base. The knowledge base is a tree based data structure to organize the collection information. Each knowledge node contains information derived from themantically similar question or intent.
-    You will be presented with the question and query leads to this information, and candidate choices of placement. In these choices, -> denotes parent-child relationship. Note that reasonable may not be in these choices.
+    """Je taak is om de gegeven informatie in de kennisbank in te voegen. De kennisbank is een boomgebaseerde datastructuur om verzamelde informatie te organiseren. Elke kennisnode bevat informatie afgeleid van semantisch vergelijkbare vragen of intenties.
+    Je krijgt de vraag en zoekopdracht te zien die tot deze informatie hebben geleid, en kandidaat-keuzes voor plaatsing. In deze keuzes geeft -> de ouder-kindrelatie aan. Merk op dat een redelijke keuze mogelijk niet in deze opties staat.
 
-    If there exists reasonable choice, output "Best placement: [choice index]"; otherwise, output "No reasonable choice".
+    Als er een redelijke keuze bestaat, output dan "Beste plaatsing: [keuze-index]"; anders, output "Geen redelijke keuze".
     """
 
     intent = dspy.InputField(
-        prefix="Question and query leads to this info: ", format=str
+        prefix="Vraag en zoekopdracht die tot deze info leiden: ", format=str
     )
-    choices = dspy.InputField(prefix="Candidate placement:\n", format=str)
-    decision = dspy.OutputField(prefix="Decision:\n", format=str)
+    choices = dspy.InputField(prefix="Kandidaat-plaatsingen:\n", format=str)
+    decision = dspy.OutputField(prefix="Beslissing:\n", format=str)
 
 
 class InsertInformationModule(dspy.Module):
@@ -57,39 +59,38 @@ class InsertInformationModule(dspy.Module):
         self.candidate_choosing = dspy.Predict(InsertInformationCandidateChoice)
 
     def _construct_intent(self, question: str, query: str):
+        # Construeert een intentstring op basis van de vraag en zoekopdracht
         intent = ""
         if query == "Not applicable":
             return question
         if question:
-            intent += f"Question: {question}\n"
+            intent += f"Vraag: {question}\n"
         if query:
-            intent += f"Query: {query}\n"
+            intent += f"Zoekopdracht: {query}\n"
         if not intent:
-            intent = "Not available."
+            intent = "Niet beschikbaar."
         return intent
 
     def _get_navigation_choice(
         self, knowledge_node: KnowledgeNode, question: str, query: str
     ):
-        # construct information intent
+        # Bepaalt de navigatiekeuze voor het invoegen van informatie
         intent = self._construct_intent(question, query)
-        # construct current kb structure
-        structure = f"Current Node: {knowledge_node.name}\n"
+        structure = f"Huidige Node: {knowledge_node.name}\n"
         child_names = ", ".join(knowledge_node.get_children_names())
         if child_names:
-            structure += f"Child Nodes: {child_names}"
+            structure += f"Kindnodes: {child_names}"
         navigated_path = " -> ".join(knowledge_node.get_path_from_root())
-        structure += f"Path you have nagivated: {navigated_path}"
+        structure += f"Pad dat je hebt genavigeerd: {navigated_path}"
 
-        # get predicted action
         with dspy.settings.context(lm=self.engine):
             predicted_action = self.insert_info(
                 intent=intent, structure=structure
             ).choice
 
-        # parse action
+        # Parseert de voorspelde actie
         cleaned_predicted_action = trim_output_after_hint(
-            predicted_action, "Choice:"
+            predicted_action, "Keuze:"
         ).strip()
         cleaned_predicted_action = cleaned_predicted_action.strip("-").strip()
         if cleaned_predicted_action.startswith("insert"):
@@ -101,7 +102,7 @@ class InsertInformationModule(dspy.Module):
             node_name = trim_output_after_hint(cleaned_predicted_action, "create:")
             return "create", node_name
         raise Exception(
-            f"Undefined predicted action in knowledge navigation. {predicted_action}"
+            f"Ongedefinieerde voorspelde actie in kennisnavigatie. {predicted_action}"
         )
 
     def layer_by_layer_navigation_placement(
@@ -112,6 +113,7 @@ class InsertInformationModule(dspy.Module):
         allow_create_new_node: bool = False,
         root: Optional[KnowledgeNode] = None,
     ):
+        # Navigeert laag voor laag door de kennisbank om de juiste plaatsing te vinden
         current_node: KnowledgeNode = knowledge_base.root if root is None else root
 
         while True:
@@ -131,19 +133,19 @@ class InsertInformationModule(dspy.Module):
                         current_node = child
                         break
                 else:
-                    raise ValueError(f"Child node with name {node_name} not found.")
+                    raise ValueError(f"Kindnode met naam {node_name} niet gevonden.")
             elif action_type == "create":
                 placement_path = current_node.get_path_from_root(root)
                 if allow_create_new_node:
                     placement_path.append(node_name)
-                    note = f"create new node: {{{node_name}}} under {{{current_node.name}}}"
+                    note = f"maak nieuwe node: {{{node_name}}} onder {{{current_node.name}}}"
                 else:
-                    note = f"attempt to create new node: {{{node_name}}} under {{{current_node.name}}}"
+                    note = f"poging om nieuwe node te maken: {{{node_name}}} onder {{{current_node.name}}}"
                 return dspy.Prediction(
                     information_placement=" -> ".join(placement_path), note=note
                 )
             else:
-                raise ValueError(f"Unknown action type: {action_type}")
+                raise ValueError(f"Onbekend actietype: {action_type}")
 
     def _get_sorted_embed_sim_section(
         self,
@@ -152,6 +154,7 @@ class InsertInformationModule(dspy.Module):
         question: str,
         query: str,
     ):
+        # Sorteert secties op basis van embedding-gelijkenis
         if encoded_outline is not None and encoded_outline.size > 0:
             encoded_query, token_usage = get_text_embeddings(f"{question}, {query}")
             sim = cosine_similarity([encoded_query], encoded_outline)[0]
@@ -162,6 +165,7 @@ class InsertInformationModule(dspy.Module):
             return outlines
 
     def _parse_selected_index(self, string: str):
+        # Parseert de geselecteerde index uit een string
         match = re.search(r"\[(\d+)\]", string)
         if match:
             return int(match.group(1))
@@ -179,6 +183,7 @@ class InsertInformationModule(dspy.Module):
         outlines: List[str],
         top_N_candidates: int = 5,
     ):
+        # Kiest een kandidaat op basis van embedding-ranking
         sorted_candidates = self._get_sorted_embed_sim_section(
             encoded_outlines, outlines, question, query
         )
@@ -196,20 +201,21 @@ class InsertInformationModule(dspy.Module):
                 intent=self._construct_intent(question=question, query=query),
                 choices=choices_string,
             ).decision
-            decision = trim_output_after_hint(decision, hint="Decision:")
-            if "Best placement:" in decision:
-                decision = trim_output_after_hint(decision, hint="Best placement:")
+            decision = trim_output_after_hint(decision, hint="Beslissing:")
+            if "Beste plaatsing:" in decision:
+                decision = trim_output_after_hint(decision, hint="Beste plaatsing:")
                 selected_index = self._parse_selected_index(decision)
                 if selected_index is not None:
                     selected_index = selected_index - 1
                     if selected_index < len(sorted_candidates) and selected_index >= 0:
                         return dspy.Prediction(
                             information_placement=sorted_candidates[selected_index],
-                            note=f"Choosing from:\n{considered_candidates}",
+                            note=f"Keuze uit:\n{considered_candidates}",
                         )
             return None
 
     def _info_list_to_intent_mapping(self, information_list: List[Information]):
+        # Maakt een mapping van intenties naar plaatsingen
         intent_to_placement_dict = {}
         for info in information_list:
             intent = (info.meta.get("question", ""), info.meta.get("query", ""))
@@ -226,15 +232,15 @@ class InsertInformationModule(dspy.Module):
         insert_root: Optional[KnowledgeNode] = None,
         skip_candidate_from_embedding: bool = False,
     ):
-
+        # Hoofdmethode voor het invoegen van informatie in de kennisbank
         if not isinstance(information, List):
             information = [information]
         intent_to_placement_dict: Dict = self._info_list_to_intent_mapping(
             information_list=information
         )
 
-        # process one intent
         def process_intent(question: str, query: str):
+            # Verwerkt een enkele intent
             candidate_placement = None
             try:
                 if not skip_candidate_from_embedding:
@@ -259,6 +265,7 @@ class InsertInformationModule(dspy.Module):
                 return (question, query), None
 
         def insert_info_to_kb(info, placement_prediction):
+            # Voegt informatie in de kennisbank in
             if placement_prediction is not None:
                 missing_node_handling = (
                     "raise error" if not allow_create_new_node else "create"
@@ -275,7 +282,7 @@ class InsertInformationModule(dspy.Module):
         )
         to_return = []
         if not allow_create_new_node:
-            # use multi thread as knowledge base structure does not change
+            # Gebruikt multi-threading omdat de kennisbankstructuur niet verandert
             with ThreadPoolExecutor(max_workers=max_thread) as executor:
                 futures = {
                     executor.submit(process_intent, question, query): (question, query)
@@ -285,7 +292,7 @@ class InsertInformationModule(dspy.Module):
                 for future in as_completed(futures):
                     (question, query), candidate_placement = future.result()
                     intent_to_placement_dict[(question, query)] = candidate_placement
-            # back mapping placement to each information
+            # Koppelt plaatsingen terug aan elke informatie
             for info in information:
                 intent = (info.meta.get("question", ""), info.meta.get("query", ""))
                 placement_prediction = intent_to_placement_dict.get(intent, None)
@@ -293,7 +300,7 @@ class InsertInformationModule(dspy.Module):
                 to_return.append((info, placement_prediction))
             return to_return
         else:
-            # use sequential insert as knowledge base structure might change
+            # Gebruikt sequentiële invoeg omdat de kennisbankstructuur kan veranderen
             for question, query in intent_to_placement_dict:
                 encoded_outlines, outlines = (
                     knowledge_base.get_knowledge_base_structure_embedding(
@@ -312,19 +319,19 @@ class InsertInformationModule(dspy.Module):
 
 
 class ExpandSection(dspy.Signature):
-    """Your task is to expand a section in the mind map by creating new subsections under the given section.
-    You will be given a list of question and query that are used to collect information.
-    Output should be subsection names where each section should serve as a coherent and themantic organization of information and corresponding citation numbers. These subsection names are preferred to be concise and precise.
-    Output follows the format below:
-    subsection 1
-    subsection 2
-    subsection 3
+    """Je taak is om een sectie in de mindmap uit te breiden door nieuwe subsecties onder de gegeven sectie te maken.
+    Je krijgt een lijst met vragen en zoekopdrachten die gebruikt zijn om informatie te verzamelen.
+    De output moet subsectienamen zijn waarbij elke sectie dient als een coherente en thematische organisatie van informatie en bijbehorende citatienummers. Deze subsectienamen moeten bij voorkeur beknopt en precies zijn.
+    De output volgt het onderstaande formaat:
+    subsectie 1
+    subsectie 2
+    subsectie 3
     """
 
-    section = dspy.InputField(prefix="The section you need to expand: ", format=str)
-    info = dspy.InputField(prefix="The collected information:\n", format=str)
+    section = dspy.InputField(prefix="De sectie die je moet uitbreiden: ", format=str)
+    info = dspy.InputField(prefix="De verzamelde informatie:\n", format=str)
     output = dspy.OutputField(
-        prefix="Now provide the expanded subsection names (If there's no need to expand current section as itself serves good organization, then output None):\n",
+        prefix="Geef nu de uitgebreide subsectienamen (Als er geen noodzaak is om de huidige sectie uit te breiden omdat deze al een goede organisatie biedt, output dan None):\n",
         format=str,
     )
 
@@ -342,15 +349,17 @@ class ExpandNodeModule(dspy.Module):
         self.node_expansion_trigger_count = node_expansion_trigger_count
 
     def _get_cited_info_meta_string(self, node, knowledge_base):
+        # Haalt meta-informatie op van geciteerde informatie in een node
         meta_string = set()
         for index in sorted(list(node.content)):
             info = knowledge_base.info_uuid_to_info_dict[index]
-            intent = f"Question: {info.meta['question']}\nQuery: {info.meta['query']}"
+            intent = f"Vraag: {info.meta['question']}\nZoekopdracht: {info.meta['query']}"
             meta_string.add(intent)
 
         return "\n\n".join(meta_string)
 
     def _get_expand_subnode_names(self, node, knowledge_base):
+        # Genereert namen voor nieuwe subnodes
         information = self._get_cited_info_meta_string(node, knowledge_base)
         node_path = node.get_path_from_root()
         with dspy.settings.context(lm=self.engine, show_guidelines=False):
@@ -358,8 +367,8 @@ class ExpandNodeModule(dspy.Module):
         subsections = []
         if "\n" in output and output != "None":
             subsections = output.split("\n")
-            # remove any integer followed by a dot and a space, a leading dashline,
-            # or a specific hint at the start of the string
+            # Verwijdert eventuele getallen gevolgd door een punt en een spatie, een leidende streep,
+            # of een specifieke hint aan het begin van de string
             subsections = [
                 re.sub(r"^\d+\.\s|-|" + re.escape(node.name), "", text)
                 .replace("*", "")
@@ -371,6 +380,7 @@ class ExpandNodeModule(dspy.Module):
     def _find_first_node_to_expand(
         self, root: KnowledgeNode, expanded_nodes: List[KnowledgeNode]
     ):
+        # Vindt de eerste node die uitgebreid moet worden
         if root is None:
             return None
         if (
@@ -387,22 +397,23 @@ class ExpandNodeModule(dspy.Module):
         return None
 
     def _expand_node(self, node: KnowledgeNode, knowledge_base: KnowledgeBase):
+        # Breidt een node uit met nieuwe subnodes
         subsection_names = self._get_expand_subnode_names(node, knowledge_base)
         if len(subsection_names) <= 1:
             return
-        # create new nodes
+        # Maakt nieuwe nodes
         for subsection_name in subsection_names:
-            # remove citation bracket in the subsection name
+            # Verwijdert citaathaakjes in de subsectienaam
             subsection_name = re.sub(r"\[.*?\]", "", subsection_name)
             knowledge_base.insert_node(new_node_name=subsection_name, parent_node=node)
-        # reset original information placement
+        # Reset originele informatie plaatsing
         original_cited_index = node.content
         original_cited_information = [
             knowledge_base.info_uuid_to_info_dict[index]
             for index in original_cited_index
         ]
         node.content = set()
-        # re-insert under expanded section
+        # Voegt opnieuw in onder uitgebreide sectie
         self.information_insert_module(
             knowledge_base=knowledge_base,
             information=original_cited_information,
@@ -411,6 +422,7 @@ class ExpandNodeModule(dspy.Module):
         )
 
     def forward(self, knowledge_base: KnowledgeBase):
+        # Hoofdmethode voor het uitbreiden van nodes in de kennisbank
         expanded_nodes = []
         while True:
             node_to_expand = self._find_first_node_to_expand(

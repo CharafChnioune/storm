@@ -17,9 +17,10 @@ from .utils import WebPageHelper
 class YouRM(dspy.Retrieve):
     def __init__(self, ydc_api_key=None, k=3, is_valid_source: Callable = None):
         super().__init__(k=k)
+        # Controleer of er een API-sleutel is opgegeven of in de omgevingsvariabelen staat
         if not ydc_api_key and not os.environ.get("YDC_API_KEY"):
             raise RuntimeError(
-                "You must supply ydc_api_key or set environment variable YDC_API_KEY"
+                "Je moet een ydc_api_key opgeven of de omgevingsvariabele YDC_API_KEY instellen"
             )
         elif ydc_api_key:
             self.ydc_api_key = ydc_api_key
@@ -27,29 +28,37 @@ class YouRM(dspy.Retrieve):
             self.ydc_api_key = os.environ["YDC_API_KEY"]
         self.usage = 0
 
-        # If not None, is_valid_source shall be a function that takes a URL and returns a boolean.
+        # Functie om te controleren of een bron geldig is
         if is_valid_source:
             self.is_valid_source = is_valid_source
         else:
             self.is_valid_source = lambda x: True
 
+    # Methode om het gebruik te resetten en te rapporteren
     def get_usage_and_reset(self):
+        """
+        Haalt het huidige gebruik op en reset het naar nul.
+
+        Returns:
+            dict: Een dictionary met de sleutel "YouRM" en het huidige gebruik als waarde.
+        """
         usage = self.usage
         self.usage = 0
 
         return {"YouRM": usage}
 
+    # Hoofdmethode voor het uitvoeren van zoekopdrachten
     def forward(
         self, query_or_queries: Union[str, List[str]], exclude_urls: List[str] = []
     ):
-        """Search with You.com for self.k top passages for query or queries
+        """Zoek met You.com naar de top self.k passages voor query of queries
 
         Args:
-            query_or_queries (Union[str, List[str]]): The query or queries to search for.
-            exclude_urls (List[str]): A list of urls to exclude from the search results.
+            query_or_queries (Union[str, List[str]]): De query of queries om naar te zoeken.
+            exclude_urls (List[str]): Een lijst met urls om uit te sluiten van de zoekresultaten.
 
         Returns:
-            a list of Dicts, each dict has keys of 'description', 'snippets' (list of strings), 'title', 'url'
+            een lijst van Dicts, elke dict heeft sleutels 'description', 'snippets' (lijst van strings), 'title', 'url'
         """
         queries = (
             [query_or_queries]
@@ -73,7 +82,7 @@ class YouRM(dspy.Retrieve):
                 if "hits" in results:
                     collected_results.extend(authoritative_results[: self.k])
             except Exception as e:
-                logging.error(f"Error occurs when searching query {query}: {e}")
+                logging.error(f"Fout bij het zoeken naar query {query}: {e}")
 
         return collected_results
 
@@ -92,17 +101,18 @@ class BingSearch(dspy.Retrieve):
         **kwargs,
     ):
         """
-        Params:
-            min_char_count: Minimum character count for the article to be considered valid.
-            snippet_chunk_size: Maximum character count for each snippet.
-            webpage_helper_max_threads: Maximum number of threads to use for webpage helper.
+        Parameters:
+            min_char_count: Minimum aantal tekens voor een artikel om als geldig te worden beschouwd.
+            snippet_chunk_size: Maximaal aantal tekens voor elk snippet.
+            webpage_helper_max_threads: Maximaal aantal threads voor de webpage helper.
             mkt, language, **kwargs: Bing search API parameters.
-            - Reference: https://learn.microsoft.com/en-us/bing/search-apis/bing-web-search/reference/query-parameters
+            - Referentie: https://learn.microsoft.com/en-us/bing/search-apis/bing-web-search/reference/query-parameters
         """
         super().__init__(k=k)
+        # Controleer of er een API-sleutel is opgegeven of in de omgevingsvariabelen staat
         if not bing_search_api_key and not os.environ.get("BING_SEARCH_API_KEY"):
             raise RuntimeError(
-                "You must supply bing_search_subscription_key or set environment variable BING_SEARCH_API_KEY"
+                "Je moet bing_search_subscription_key opgeven of de omgevingsvariabele BING_SEARCH_API_KEY instellen"
             )
         elif bing_search_api_key:
             self.bing_api_key = bing_search_api_key
@@ -117,29 +127,31 @@ class BingSearch(dspy.Retrieve):
         )
         self.usage = 0
 
-        # If not None, is_valid_source shall be a function that takes a URL and returns a boolean.
+        # Functie om te controleren of een bron geldig is
         if is_valid_source:
             self.is_valid_source = is_valid_source
         else:
             self.is_valid_source = lambda x: True
 
+    # Methode om het gebruik te resetten en te rapporteren
     def get_usage_and_reset(self):
         usage = self.usage
         self.usage = 0
 
         return {"BingSearch": usage}
 
+    # Hoofdmethode voor het uitvoeren van zoekopdrachten
     def forward(
         self, query_or_queries: Union[str, List[str]], exclude_urls: List[str] = []
     ):
-        """Search with Bing for self.k top passages for query or queries
+        """Zoek met Bing naar de top self.k passages voor query of queries
 
         Args:
-            query_or_queries (Union[str, List[str]]): The query or queries to search for.
-            exclude_urls (List[str]): A list of urls to exclude from the search results.
+            query_or_queries (Union[str, List[str]]): De query of queries om naar te zoeken.
+            exclude_urls (List[str]): Een lijst met urls om uit te sluiten van de zoekresultaten.
 
         Returns:
-            a list of Dicts, each dict has keys of 'description', 'snippets' (list of strings), 'title', 'url'
+            een lijst van Dicts, elke dict heeft sleutels 'description', 'snippets' (lijst van strings), 'title', 'url'
         """
         queries = (
             [query_or_queries]
@@ -166,7 +178,7 @@ class BingSearch(dspy.Retrieve):
                             "description": d["snippet"],
                         }
             except Exception as e:
-                logging.error(f"Error occurs when searching query {query}: {e}")
+                logging.error(f"Fout bij het zoeken naar query {query}: {e}")
 
         valid_url_to_snippets = self.webpage_helper.urls_to_snippets(
             list(url_to_results.keys())
@@ -181,15 +193,15 @@ class BingSearch(dspy.Retrieve):
 
 
 class VectorRM(dspy.Retrieve):
-    """Retrieve information from custom documents using Qdrant.
+    """Haal informatie op uit aangepaste documenten met behulp van Qdrant.
 
-    To be compatible with STORM, the custom documents should have the following fields:
-        - content: The main text content of the document.
-        - title: The title of the document.
-        - url: The URL of the document. STORM use url as the unique identifier of the document, so ensure different
-            documents have different urls.
-        - description (optional): The description of the document.
-    The documents should be stored in a CSV file.
+    Om compatibel te zijn met STORM, moeten de aangepaste documenten de volgende velden hebben:
+        - content: De hoofdtekstinhoud van het document.
+        - title: De titel van het document.
+        - url: De URL van het document. STORM gebruikt url als de unieke identifier van het document, dus zorg ervoor dat verschillende
+            documenten verschillende url's hebben.
+        - description (optioneel): De beschrijving van het document.
+    De documenten moeten worden opgeslagen in een CSV-bestand.
     """
 
     def __init__(
@@ -200,20 +212,20 @@ class VectorRM(dspy.Retrieve):
         k: int = 3,
     ):
         """
-        Params:
-            collection_name: Name of the Qdrant collection.
-            embedding_model: Name of the Hugging Face embedding model.
-            device: Device to run the embeddings model on, can be "mps", "cuda", "cpu".
-            k: Number of top chunks to retrieve.
+        Parameters:
+            collection_name: Naam van de Qdrant-collectie.
+            embedding_model: Naam van het Hugging Face embedding model.
+            device: Apparaat om het embedding model op uit te voeren, kan "mps", "cuda", "cpu" zijn.
+            k: Aantal top chunks om op te halen.
         """
         super().__init__(k=k)
         self.usage = 0
-        # check if the collection is provided
+        # Controleer of de collectie is opgegeven
         if not collection_name:
-            raise ValueError("Please provide a collection name.")
-        # check if the embedding model is provided
+            raise ValueError("Geef een collectienaam op.")
+        # Controleer of het embedding model is opgegeven
         if not embedding_model:
-            raise ValueError("Please provide an embedding model.")
+            raise ValueError("Geef een embedding model op.")
 
         model_kwargs = {"device": device}
         encode_kwargs = {"normalize_embeddings": True}
@@ -229,13 +241,13 @@ class VectorRM(dspy.Retrieve):
 
     def _check_collection(self):
         """
-        Check if the Qdrant collection exists and create it if it does not.
+        Controleer of de Qdrant-collectie bestaat en maak deze aan als dat niet het geval is.
         """
         if self.client is None:
-            raise ValueError("Qdrant client is not initialized.")
+            raise ValueError("Qdrant-client is niet geïnitialiseerd.")
         if self.client.collection_exists(collection_name=f"{self.collection_name}"):
             print(
-                f"Collection {self.collection_name} exists. Loading the collection..."
+                f"Collectie {self.collection_name} bestaat. De collectie wordt geladen..."
             )
             self.qdrant = Qdrant(
                 client=self.client,
@@ -244,45 +256,45 @@ class VectorRM(dspy.Retrieve):
             )
         else:
             raise ValueError(
-                f"Collection {self.collection_name} does not exist. Please create the collection first."
+                f"Collectie {self.collection_name} bestaat niet. Maak eerst de collectie aan."
             )
 
     def init_online_vector_db(self, url: str, api_key: str):
         """
-        Initialize the Qdrant client that is connected to an online vector store with the given URL and API key.
+        Initialiseer de Qdrant-client die verbonden is met een online vector store met de gegeven URL en API-sleutel.
 
         Args:
-            url (str): URL of the Qdrant server.
-            api_key (str): API key for the Qdrant server.
+            url (str): URL van de Qdrant-server.
+            api_key (str): API-sleutel voor de Qdrant-server.
         """
         if api_key is None:
             if not os.getenv("QDRANT_API_KEY"):
-                raise ValueError("Please provide an api key.")
+                raise ValueError("Geef een api-sleutel op.")
             api_key = os.getenv("QDRANT_API_KEY")
         if url is None:
-            raise ValueError("Please provide a url for the Qdrant server.")
+            raise ValueError("Geef een url op voor de Qdrant-server.")
 
         try:
             self.client = QdrantClient(url=url, api_key=api_key)
             self._check_collection()
         except Exception as e:
-            raise ValueError(f"Error occurs when connecting to the server: {e}")
+            raise ValueError(f"Fout bij het verbinden met de server: {e}")
 
     def init_offline_vector_db(self, vector_store_path: str):
         """
-        Initialize the Qdrant client that is connected to an offline vector store with the given vector store folder path.
+        Initialiseer de Qdrant-client die verbonden is met een offline vector store met het gegeven vector store mappad.
 
         Args:
-            vector_store_path (str): Path to the vector store.
+            vector_store_path (str): Pad naar de vector store.
         """
         if vector_store_path is None:
-            raise ValueError("Please provide a folder path.")
+            raise ValueError("Geef een mappad op.")
 
         try:
             self.client = QdrantClient(path=vector_store_path)
             self._check_collection()
         except Exception as e:
-            raise ValueError(f"Error occurs when loading the vector store: {e}")
+            raise ValueError(f"Fout bij het laden van de vector store: {e}")
 
     def get_usage_and_reset(self):
         usage = self.usage
@@ -292,23 +304,23 @@ class VectorRM(dspy.Retrieve):
 
     def get_vector_count(self):
         """
-        Get the count of vectors in the collection.
+        Haal het aantal vectoren in de collectie op.
 
         Returns:
-            int: Number of vectors in the collection.
+            int: Aantal vectoren in de collectie.
         """
         return self.qdrant.client.count(collection_name=self.collection_name)
 
     def forward(self, query_or_queries: Union[str, List[str]], exclude_urls: List[str]):
         """
-        Search in your data for self.k top passages for query or queries.
+        Zoek in je gegevens naar de top self.k passages voor query of queries.
 
         Args:
-            query_or_queries (Union[str, List[str]]): The query or queries to search for.
-            exclude_urls (List[str]): Dummy parameter to match the interface. Does not have any effect.
+            query_or_queries (Union[str, List[str]]): De query of queries om naar te zoeken.
+            exclude_urls (List[str]): Dummy parameter om de interface te matchen. Heeft geen effect.
 
         Returns:
-            a list of Dicts, each dict has keys of 'description', 'snippets' (list of strings), 'title', 'url'
+            een lijst van Dicts, elke dict heeft sleutels 'description', 'snippets' (lijst van strings), 'title', 'url'
         """
         queries = (
             [query_or_queries]
@@ -334,7 +346,7 @@ class VectorRM(dspy.Retrieve):
 
 
 class StanfordOvalArxivRM(dspy.Retrieve):
-    """[Alpha] This retrieval class is for internal use only, not intended for the public."""
+    """[Alpha] Deze retrieval klasse is alleen voor intern gebruik, niet bedoeld voor het publiek."""
 
     def __init__(self, endpoint, k=3):
         super().__init__(k=k)
@@ -342,19 +354,37 @@ class StanfordOvalArxivRM(dspy.Retrieve):
         self.usage = 0
 
     def get_usage_and_reset(self):
+        """
+        Reset het gebruik en rapporteer het.
+
+        Returns:
+            dict: Een dictionary met het gebruik van CS224vArxivRM.
+        """
         usage = self.usage
         self.usage = 0
 
         return {"CS224vArxivRM": usage}
 
     def _retrieve(self, query: str):
+        """
+        Haalt informatie op uit de Stanford Oval Arxiv database voor de gegeven query.
+
+        Args:
+            query (str): De zoekopdracht om informatie voor op te halen.
+
+        Returns:
+            list: Een lijst van resultaten, elk als een dictionary met relevante informatie.
+
+        Raises:
+            Exception: Als er een fout optreedt bij het ophalen van de resultaten.
+        """
         payload = {"query": query, "num_blocks": self.k}
 
         response = requests.post(
             self.endpoint, json=payload, headers={"Content-Type": "application/json"}
         )
 
-        # Check if the request was successful
+        # Controleer of het verzoek succesvol was
         if response.status_code == 200:
             data = response.json()[0]
             results = []
@@ -371,12 +401,22 @@ class StanfordOvalArxivRM(dspy.Retrieve):
             return results
         else:
             raise Exception(
-                f"Error: Unable to retrieve results. Status code: {response.status_code}"
+                f"Fout: Kan geen resultaten ophalen. Statuscode: {response.status_code}"
             )
 
     def forward(
         self, query_or_queries: Union[str, List[str]], exclude_urls: List[str] = []
     ):
+        """
+        Voert zoekopdrachten uit en verzamelt de resultaten.
+
+        Args:
+            query_or_queries (Union[str, List[str]]): De query of queries om naar te zoeken.
+            exclude_urls (List[str], optional): Een lijst met urls om uit te sluiten van de zoekresultaten. Standaard is een lege lijst.
+
+        Returns:
+            list: Een lijst van verzamelde resultaten.
+        """
         collected_results = []
         queries = (
             [query_or_queries]
@@ -389,12 +429,12 @@ class StanfordOvalArxivRM(dspy.Retrieve):
                 results = self._retrieve(query)
                 collected_results.extend(results)
             except Exception as e:
-                logging.error(f"Error occurs when searching query {query}: {e}")
+                logging.error(f"Fout bij het zoeken naar query {query}: {e}")
         return collected_results
 
 
 class SerperRM(dspy.Retrieve):
-    """Retrieve information from custom queries using Serper.dev."""
+    """Haal informatie op uit aangepaste queries met behulp van Serper.dev."""
 
     def __init__(
         self,
@@ -407,22 +447,22 @@ class SerperRM(dspy.Retrieve):
         webpage_helper_max_threads=10,
     ):
         """Args:
-        serper_search_api_key str: API key to run serper, can be found by creating an account on https://serper.dev/
-        query_params (dict or list of dict): parameters in dictionary or list of dictionaries that has a max size of 100 that will be used to query.
-            Commonly used fields are as follows (see more information in https://serper.dev/playground):
-                q str: query that will be used with google search
-                type str: type that will be used for browsing google. Types are search, images, video, maps, places, etc.
-                gl str: Country that will be focused on for the search
-                location str: Country where the search will originate from. All locates can be found here: https://api.serper.dev/locations.
-                autocorrect bool: Enable autocorrect on the queries while searching, if query is misspelled, will be updated.
-                results int: Max number of results per page.
-                page int: Max number of pages per call.
-                tbs str: date time range, automatically set to any time by default.
-                qdr:h str: Date time range for the past hour.
-                qdr:d str: Date time range for the past 24 hours.
-                qdr:w str: Date time range for past week.
-                qdr:m str: Date time range for past month.
-                qdr:y str: Date time range for past year.
+        serper_search_api_key str: API-sleutel om serper uit te voeren, kan worden gevonden door een account aan te maken op https://serper.dev/
+        query_params (dict of lijst van dict): parameters in dictionary of lijst van dictionaries met een maximale grootte van 100 die zullen worden gebruikt voor de query.
+            Veelgebruikte velden zijn als volgt (zie meer informatie in https://serper.dev/playground):
+                q str: query die zal worden gebruikt met google search
+                type str: type dat zal worden gebruikt voor het browsen van google. Types zijn search, images, video, maps, places, etc.
+                gl str: Land dat de focus zal zijn voor de zoekopdracht
+                location str: Land waar de zoekopdracht vandaan zal komen. Alle locaties kunnen hier worden gevonden: https://api.serper.dev/locations.
+                autocorrect bool: Schakel autocorrectie in voor de queries tijdens het zoeken, als de query verkeerd gespeld is, wordt deze bijgewerkt.
+                results int: Maximaal aantal resultaten per pagina.
+                page int: Maximaal aantal pagina's per aanroep.
+                tbs str: datum tijdbereik, standaard ingesteld op elk moment.
+                qdr:h str: Datum tijdbereik voor het afgelopen uur.
+                qdr:d str: Datum tijdbereik voor de afgelopen 24 uur.
+                qdr:w str: Datum tijdbereik voor de afgelopen week.
+                qdr:m str: Datum tijdbereik voor de afgelopen maand.
+                qdr:y str: Datum tijdbereik voor het afgelopen jaar.
         """
         super().__init__(k=k)
         self.usage = 0
@@ -442,7 +482,7 @@ class SerperRM(dspy.Retrieve):
         self.serper_search_api_key = serper_search_api_key
         if not self.serper_search_api_key and not os.environ.get("SERPER_API_KEY"):
             raise RuntimeError(
-                "You must supply a serper_search_api_key param or set environment variable SERPER_API_KEY"
+                "Je moet een serper_search_api_key parameter opgeven of de omgevingsvariabele SERPER_API_KEY instellen"
             )
 
         elif self.serper_search_api_key:
@@ -453,6 +493,7 @@ class SerperRM(dspy.Retrieve):
 
         self.base_url = "https://google.serper.dev"
 
+    # Methode om de Serper API aan te roepen
     def serper_runner(self, query_params):
         self.search_url = f"{self.base_url}/search"
 
@@ -467,27 +508,29 @@ class SerperRM(dspy.Retrieve):
 
         if response == None:
             raise RuntimeError(
-                f"Error had occurred while running the search process.\n Error is {response.reason}, had failed with status code {response.status_code}"
+                f"Er is een fout opgetreden tijdens het uitvoeren van het zoekproces.\n De fout is {response.reason}, mislukt met statuscode {response.status_code}"
             )
 
         return response.json()
 
+    # Methode om het gebruik te resetten en te rapporteren
     def get_usage_and_reset(self):
         usage = self.usage
         self.usage = 0
         return {"SerperRM": usage}
 
+    # Hoofdmethode voor het uitvoeren van zoekopdrachten
     def forward(self, query_or_queries: Union[str, List[str]], exclude_urls: List[str]):
         """
-        Calls the API and searches for the query passed in.
+        Roept de API aan en zoekt naar de doorgegeven query.
 
 
         Args:
-            query_or_queries (Union[str, List[str]]): The query or queries to search for.
-            exclude_urls (List[str]): Dummy parameter to match the interface. Does not have any effect.
+            query_or_queries (Union[str, List[str]]): De query of queries om naar te zoeken.
+            exclude_urls (List[str]): Dummy parameter om de interface te matchen. Heeft geen effect.
 
         Returns:
-            a list of dictionaries, each dictionary has keys of 'description', 'snippets' (list of strings), 'title', 'url'
+            een lijst van dictionaries, elke dictionary heeft sleutels 'description', 'snippets' (lijst van strings), 'title', 'url'
         """
         queries = (
             [query_or_queries]
@@ -503,17 +546,17 @@ class SerperRM(dspy.Retrieve):
                 continue
             query_params = self.query_params
 
-            # All available parameters can be found in the playground: https://serper.dev/playground
-            # Sets the json value for query to be the query that is being parsed.
+            # Alle beschikbare parameters kunnen worden gevonden in de playground: https://serper.dev/playground
+            # Stelt de json-waarde voor query in op de query die wordt geparseerd.
             query_params["q"] = query
 
-            # Sets the type to be search, can be images, video, places, maps etc that Google provides.
+            # Stelt het type in op search, kan images, video, places, maps etc zijn die Google biedt.
             query_params["type"] = "search"
 
             self.result = self.serper_runner(query_params)
             self.results.append(self.result)
 
-        # Array of dictionaries that will be used by Storm to create the jsons
+        # Array van dictionaries die door Storm zullen worden gebruikt om de jsons te maken
         collected_results = []
 
         if self.ENABLE_EXTRA_SNIPPET_EXTRACTION:
@@ -530,7 +573,7 @@ class SerperRM(dspy.Retrieve):
 
         for result in self.results:
             try:
-                # An array of dictionaries that contains the snippets, title of the document and url that will be used.
+                # Een array van dictionaries die de snippets, titel van het document en url bevat die zullen worden gebruikt.
                 organic_results = result.get("organic")
                 knowledge_graph = result.get("knowledgeGraph")
                 for organic in organic_results:
@@ -564,7 +607,7 @@ class BraveRM(dspy.Retrieve):
         super().__init__(k=k)
         if not brave_search_api_key and not os.environ.get("BRAVE_API_KEY"):
             raise RuntimeError(
-                "You must supply brave_search_api_key or set environment variable BRAVE_API_KEY"
+                "Je moet brave_search_api_key opgeven of de omgevingsvariabele BRAVE_API_KEY instellen"
             )
         elif brave_search_api_key:
             self.brave_search_api_key = brave_search_api_key
@@ -572,29 +615,37 @@ class BraveRM(dspy.Retrieve):
             self.brave_search_api_key = os.environ["BRAVE_API_KEY"]
         self.usage = 0
 
-        # If not None, is_valid_source shall be a function that takes a URL and returns a boolean.
+        # Functie om te controleren of een bron geldig is
         if is_valid_source:
             self.is_valid_source = is_valid_source
         else:
             self.is_valid_source = lambda x: True
 
+    # Methode om het gebruik te resetten en te rapporteren
     def get_usage_and_reset(self):
+        """
+        Haalt het huidige gebruik op en reset het naar nul.
+
+        Returns:
+            dict: Een dictionary met de sleutel "BraveRM" en het huidige gebruik als waarde.
+        """
         usage = self.usage
         self.usage = 0
 
         return {"BraveRM": usage}
 
+    # Hoofdmethode voor het uitvoeren van zoekopdrachten
     def forward(
         self, query_or_queries: Union[str, List[str]], exclude_urls: List[str] = []
     ):
-        """Search with api.search.brave.com for self.k top passages for query or queries
+        """Zoek met api.search.brave.com naar de top self.k passages voor query of queries
 
         Args:
-            query_or_queries (Union[str, List[str]]): The query or queries to search for.
-            exclude_urls (List[str]): A list of urls to exclude from the search results.
+            query_or_queries (Union[str, List[str]]): De query of queries om naar te zoeken.
+            exclude_urls (List[str]): Een lijst met urls om uit te sluiten van de zoekresultaten.
 
         Returns:
-            a list of Dicts, each dict has keys of 'description', 'snippets' (list of strings), 'title', 'url'
+            een lijst van Dicts, elke dict heeft sleutels 'description', 'snippets' (lijst van strings), 'title', 'url'
         """
         queries = (
             [query_or_queries]
@@ -626,7 +677,7 @@ class BraveRM(dspy.Retrieve):
                         }
                     )
             except Exception as e:
-                logging.error(f"Error occurs when searching query {query}: {e}")
+                logging.error(f"Fout bij het zoeken naar query {query}: {e}")
 
         return collected_results
 
@@ -639,19 +690,19 @@ class SearXNG(dspy.Retrieve):
         k=3,
         is_valid_source: Callable = None,
     ):
-        """Initialize the SearXNG search retriever.
-        Please set up SearXNG according to https://docs.searxng.org/index.html.
+        """Initialiseer de SearXNG zoek retriever.
+        Stel SearXNG in volgens https://docs.searxng.org/index.html.
 
         Args:
-            searxng_api_url (str): The URL of the SearXNG API. Consult SearXNG documentation for details.
-            searxng_api_key (str, optional): The API key for the SearXNG API. Defaults to None. Consult SearXNG documentation for details.
-            k (int, optional): The number of top passages to retrieve. Defaults to 3.
-            is_valid_source (Callable, optional): A function that takes a URL and returns a boolean indicating if the
-            source is valid. Defaults to None.
+            searxng_api_url (str): De URL van de SearXNG API. Raadpleeg de SearXNG-documentatie voor details.
+            searxng_api_key (str, optioneel): De API-sleutel voor de SearXNG API. Standaard is None. Raadpleeg de SearXNG-documentatie voor details.
+            k (int, optioneel): Het aantal top passages om op te halen. Standaard is 3.
+            is_valid_source (Callable, optioneel): Een functie die een URL accepteert en een boolean teruggeeft die aangeeft of de
+            bron geldig is. Standaard is None.
         """
         super().__init__(k=k)
         if not searxng_api_url:
-            raise RuntimeError("You must supply searxng_api_url")
+            raise RuntimeError("Je moet searxng_api_url opgeven")
         self.searxng_api_url = searxng_api_url
         self.searxng_api_key = searxng_api_key
         self.usage = 0
@@ -661,22 +712,24 @@ class SearXNG(dspy.Retrieve):
         else:
             self.is_valid_source = lambda x: True
 
+    # Methode om het gebruik te resetten en te rapporteren
     def get_usage_and_reset(self):
         usage = self.usage
         self.usage = 0
         return {"SearXNG": usage}
 
+    # Hoofdmethode voor het uitvoeren van zoekopdrachten
     def forward(
         self, query_or_queries: Union[str, List[str]], exclude_urls: List[str] = []
     ):
-        """Search with SearxNG for self.k top passages for query or queries
+        """Zoek met SearXNG naar de top self.k passages voor query of queries
 
         Args:
-            query_or_queries (Union[str, List[str]]): The query or queries to search for.
-            exclude_urls (List[str]): A list of urls to exclude from the search results.
+            query_or_queries (Union[str, List[str]]): De query of queries om naar te zoeken.
+            exclude_urls (List[str]): Een lijst met urls om uit te sluiten van de zoekresultaten.
 
         Returns:
-            a list of Dicts, each dict has keys of 'description', 'snippets' (list of strings), 'title', 'url'
+            een lijst van Dicts, elke dict heeft sleutels 'description', 'snippets' (lijst van strings), 'title', 'url'
         """
         queries = (
             [query_or_queries]
@@ -710,13 +763,13 @@ class SearXNG(dspy.Retrieve):
                             }
                         )
             except Exception as e:
-                logging.error(f"Error occurs when searching query {query}: {e}")
+                logging.error(f"Fout bij het zoeken naar query {query}: {e}")
 
         return collected_results
 
 
 class DuckDuckGoSearchRM(dspy.Retrieve):
-    """Retrieve information from custom queries using DuckDuckGo."""
+    """Haal informatie op uit aangepaste zoekopdrachten met behulp van DuckDuckGo."""
 
     def __init__(
         self,
@@ -729,18 +782,23 @@ class DuckDuckGoSearchRM(dspy.Retrieve):
         region: str = "us-en",
     ):
         """
-        Params:
-            min_char_count: Minimum character count for the article to be considered valid.
-            snippet_chunk_size: Maximum character count for each snippet.
-            webpage_helper_max_threads: Maximum number of threads to use for webpage helper.
-            **kwargs: Additional parameters for the OpenAI API.
+        Initialiseert de DuckDuckGoSearchRM.
+
+        Parameters:
+            k: Aantal top resultaten om op te halen.
+            is_valid_source: Optionele functie om geldige bronnen te filteren.
+            min_char_count: Minimum aantal tekens voor een artikel om als geldig te worden beschouwd.
+            snippet_chunk_size: Maximum aantal tekens voor elk snippet.
+            webpage_helper_max_threads: Maximum aantal threads voor de webpage helper.
+            safe_search: Instelling voor veilig zoeken ('On', 'Moderate', 'Off').
+            region: Regio-instelling voor zoekresultaten (bijv. 'us-en', 'nl-nl').
         """
         super().__init__(k=k)
         try:
             from duckduckgo_search import DDGS
         except ImportError as err:
             raise ImportError(
-                "Duckduckgo requires `pip install duckduckgo_search`."
+                "Duckduckgo vereist `pip install duckduckgo_search`."
             ) from err
         self.k = k
         self.webpage_helper = WebPageHelper(
@@ -749,28 +807,34 @@ class DuckDuckGoSearchRM(dspy.Retrieve):
             max_thread_num=webpage_helper_max_threads,
         )
         self.usage = 0
-        # All params for search can be found here:
+        # Alle parameters voor zoeken kunnen hier worden gevonden:
         #   https://duckduckgo.com/duckduckgo-help-pages/settings/params/
 
-        # Sets the backend to be api
+        # Stelt de backend in op api
         self.duck_duck_go_backend = "api"
 
-        # Only gets safe search results
+        # Haalt alleen veilige zoekresultaten op
         self.duck_duck_go_safe_search = safe_search
 
-        # Specifies the region that the search will use
+        # Specificeert de regio die de zoekopdracht zal gebruiken
         self.duck_duck_go_region = region
 
-        # If not None, is_valid_source shall be a function that takes a URL and returns a boolean.
+        # Als is_valid_source niet None is, moet het een functie zijn die een URL accepteert en een boolean teruggeeft.
         if is_valid_source:
             self.is_valid_source = is_valid_source
         else:
             self.is_valid_source = lambda x: True
 
-        # Import the duckduckgo search library found here: https://github.com/deedy5/duckduckgo_search
+        # Importeert de duckduckgo zoekbibliotheek gevonden op: https://github.com/deedy5/duckduckgo_search
         self.ddgs = DDGS()
 
     def get_usage_and_reset(self):
+        """
+        Haalt het huidige gebruik op en reset het naar nul.
+
+        Returns:
+            dict: Een dictionary met de sleutel "DuckDuckGoRM" en het huidige gebruik als waarde.
+        """
         usage = self.usage
         self.usage = 0
         return {"DuckDuckGoRM": usage}
@@ -784,6 +848,15 @@ class DuckDuckGoSearchRM(dspy.Retrieve):
         giveup=giveup_hdlr,
     )
     def request(self, query: str):
+        """
+        Voert een zoekopdracht uit met DuckDuckGo.
+
+        Args:
+            query (str): De zoekopdracht.
+
+        Returns:
+            List[Dict]: Een lijst met zoekresultaten.
+        """
         results = self.ddgs.text(
             query, max_results=self.k, backend=self.duck_duck_go_backend
         )
@@ -792,12 +865,15 @@ class DuckDuckGoSearchRM(dspy.Retrieve):
     def forward(
         self, query_or_queries: Union[str, List[str]], exclude_urls: List[str] = []
     ):
-        """Search with DuckDuckGoSearch for self.k top passages for query or queries
+        """
+        Zoekt met DuckDuckGoSearch naar de top self.k passages voor query of queries.
+
         Args:
-            query_or_queries (Union[str, List[str]]): The query or queries to search for.
-            exclude_urls (List[str]): A list of urls to exclude from the search results.
+            query_or_queries (Union[str, List[str]]): De query of queries om naar te zoeken.
+            exclude_urls (List[str]): Een lijst met urls om uit te sluiten van de zoekresultaten.
+
         Returns:
-            a list of Dicts, each dict has keys of 'description', 'snippets' (list of strings), 'title', 'url'
+            List[Dict]: Een lijst van dictionaries, elke dictionary heeft sleutels 'description', 'snippets' (lijst van strings), 'title', 'url'.
         """
         queries = (
             [query_or_queries]
@@ -809,25 +885,25 @@ class DuckDuckGoSearchRM(dspy.Retrieve):
         collected_results = []
 
         for query in queries:
-            #  list of dicts that will be parsed to return
+            # Lijst van dictionaries die zullen worden geparseerd om terug te geven
             results = self.request(query)
 
             for d in results:
-                # assert d is dict
+                # Controleer of d een dictionary is
                 if not isinstance(d, dict):
-                    print(f"Invalid result: {d}\n")
+                    print(f"Ongeldig resultaat: {d}\n")
                     continue
 
                 try:
-                    # ensure keys are present
+                    # Zorg ervoor dat de sleutels aanwezig zijn
                     url = d.get("href", None)
                     title = d.get("title", None)
                     description = d.get("description", title)
                     snippets = [d.get("body", None)]
 
-                    # raise exception of missing key(s)
+                    # Raise exception als er sleutel(s) ontbreken
                     if not all([url, title, description, snippets]):
-                        raise ValueError(f"Missing key(s) in result: {d}")
+                        raise ValueError(f"Ontbrekende sleutel(s) in resultaat: {d}")
                     if self.is_valid_source(url) and url not in exclude_urls:
                         result = {
                             "url": url,
@@ -837,16 +913,16 @@ class DuckDuckGoSearchRM(dspy.Retrieve):
                         }
                         collected_results.append(result)
                     else:
-                        print(f"invalid source {url} or url in exclude_urls")
+                        print(f"Ongeldige bron {url} of url in exclude_urls")
                 except Exception as e:
-                    print(f"Error occurs when processing {result=}: {e}\n")
-                    print(f"Error occurs when searching query {query}: {e}")
+                    print(f"Fout opgetreden bij het verwerken van {result=}: {e}\n")
+                    print(f"Fout opgetreden bij het zoeken naar query {query}: {e}")
 
         return collected_results
 
 
 class TavilySearchRM(dspy.Retrieve):
-    """Retrieve information from custom queries using Tavily. Documentation and examples can be found at https://docs.tavily.com/docs/python-sdk/tavily-search/examples"""
+    """Haal informatie op uit aangepaste zoekopdrachten met behulp van Tavily. Documentatie en voorbeelden zijn te vinden op https://docs.tavily.com/docs/python-sdk/tavily-search/examples"""
 
     def __init__(
         self,
@@ -859,22 +935,26 @@ class TavilySearchRM(dspy.Retrieve):
         include_raw_content=False,
     ):
         """
-        Params:
-            tavily_search_api_key str: API key for tavily that can be retrieved from https://tavily.com/
-            min_char_count: Minimum character count for the article to be considered valid.
-            snippet_chunk_size: Maximum character count for each snippet.
-            webpage_helper_max_threads: Maximum number of threads to use for webpage helper.
-            include_raw_content bool: Boolean that is used to determine if the full text should be returned.
+        Initialiseert de TavilySearchRM.
+
+        Parameters:
+            tavily_search_api_key (str): API-sleutel voor Tavily die kan worden verkregen van https://tavily.com/
+            k (int): Aantal top resultaten om op te halen.
+            is_valid_source (Callable): Optionele functie om geldige bronnen te filteren.
+            min_char_count (int): Minimum aantal tekens voor een artikel om als geldig te worden beschouwd.
+            snippet_chunk_size (int): Maximum aantal tekens voor elk snippet.
+            webpage_helper_max_threads (int): Maximum aantal threads voor de webpage helper.
+            include_raw_content (bool): Boolean die wordt gebruikt om te bepalen of de volledige tekst moet worden geretourneerd.
         """
         super().__init__(k=k)
         try:
             from tavily import TavilyClient
         except ImportError as err:
-            raise ImportError("Tavily requires `pip install tavily-python`.") from err
+            raise ImportError("Tavily vereist `pip install tavily-python`.") from err
 
         if not tavily_search_api_key and not os.environ.get("TAVILY_API_KEY"):
             raise RuntimeError(
-                "You must supply tavily_search_api_key or set environment variable TAVILY_API_KEY"
+                "Je moet tavily_search_api_key opgeven of de omgevingsvariabele TAVILY_API_KEY instellen"
             )
         elif tavily_search_api_key:
             self.tavily_search_api_key = tavily_search_api_key
@@ -890,19 +970,25 @@ class TavilySearchRM(dspy.Retrieve):
 
         self.usage = 0
 
-        # Creates client instance that will use search. Full search params are here:
+        # Maakt een client-instantie aan die zal worden gebruikt voor zoeken. Volledige zoekparameters zijn hier te vinden:
         # https://docs.tavily.com/docs/python-sdk/tavily-search/examples
         self.tavily_client = TavilyClient(api_key=self.tavily_search_api_key)
 
         self.include_raw_content = include_raw_content
 
-        # If not None, is_valid_source shall be a function that takes a URL and returns a boolean.
+        # Als is_valid_source niet None is, moet het een functie zijn die een URL accepteert en een boolean teruggeeft.
         if is_valid_source:
             self.is_valid_source = is_valid_source
         else:
             self.is_valid_source = lambda x: True
 
     def get_usage_and_reset(self):
+        """
+        Haalt het huidige gebruik op en reset het naar nul.
+
+        Returns:
+            dict: Een dictionary met de sleutel "TavilySearchRM" en het huidige gebruik als waarde.
+        """
         usage = self.usage
         self.usage = 0
         return {"TavilySearchRM": usage}
@@ -910,12 +996,15 @@ class TavilySearchRM(dspy.Retrieve):
     def forward(
         self, query_or_queries: Union[str, List[str]], exclude_urls: List[str] = []
     ):
-        """Search with TavilySearch for self.k top passages for query or queries
+        """
+        Zoekt met TavilySearch naar de top self.k passages voor query of queries.
+
         Args:
-            query_or_queries (Union[str, List[str]]): The query or queries to search for.
-            exclude_urls (List[str]): A list of urls to exclude from the search results.
+            query_or_queries (Union[str, List[str]]): De query of queries om naar te zoeken.
+            exclude_urls (List[str]): Een lijst met urls om uit te sluiten van de zoekresultaten.
+
         Returns:
-            a list of Dicts, each dict has keys of 'description', 'snippets' (list of strings), 'title', 'url'
+            List[Dict]: Een lijst van dictionaries, elke dictionary heeft sleutels 'description', 'snippets' (lijst van strings), 'title', 'url'.
         """
         queries = (
             [query_or_queries]
@@ -931,17 +1020,17 @@ class TavilySearchRM(dspy.Retrieve):
                 "max_results": self.k,
                 "include_raw_contents": self.include_raw_content,
             }
-            #  list of dicts that will be parsed to return
+            # Lijst van dictionaries die zullen worden geparseerd om terug te geven
             responseData = self.tavily_client.search(query)
             results = responseData.get("results")
             for d in results:
-                # assert d is dict
+                # Controleer of d een dictionary is
                 if not isinstance(d, dict):
-                    print(f"Invalid result: {d}\n")
+                    print(f"Ongeldig resultaat: {d}\n")
                     continue
 
                 try:
-                    # ensure keys are present
+                    # Zorg ervoor dat de sleutels aanwezig zijn
                     url = d.get("url", None)
                     title = d.get("title", None)
                     description = d.get("content", None)
@@ -951,9 +1040,9 @@ class TavilySearchRM(dspy.Retrieve):
                     else:
                         snippets.append(d.get("content"))
 
-                    # raise exception of missing key(s)
+                    # Raise exception als er sleutel(s) ontbreken
                     if not all([url, title, description, snippets]):
-                        raise ValueError(f"Missing key(s) in result: {d}")
+                        raise ValueError(f"Ontbrekende sleutel(s) in resultaat: {d}")
                     if self.is_valid_source(url) and url not in exclude_urls:
                         result = {
                             "url": url,
@@ -963,10 +1052,10 @@ class TavilySearchRM(dspy.Retrieve):
                         }
                         collected_results.append(result)
                     else:
-                        print(f"invalid source {url} or url in exclude_urls")
+                        print(f"Ongeldige bron {url} of url in exclude_urls")
                 except Exception as e:
-                    print(f"Error occurs when processing {result=}: {e}\n")
-                    print(f"Error occurs when searching query {query}: {e}")
+                    print(f"Fout opgetreden bij het verwerken van {result=}: {e}\n")
+                    print(f"Fout opgetreden bij het zoeken naar query {query}: {e}")
 
         return collected_results
 
@@ -983,31 +1072,33 @@ class GoogleSearch(dspy.Retrieve):
         webpage_helper_max_threads=10,
     ):
         """
-        Params:
-            google_search_api_key: Google API key. Check out https://developers.google.com/custom-search/v1/overview
-                "API key" section
-            google_cse_id: Custom search engine ID. Check out https://developers.google.com/custom-search/v1/overview
-                "Search engine ID" section
-            k: Number of top results to retrieve.
-            is_valid_source: Optional function to filter valid sources.
-            min_char_count: Minimum character count for the article to be considered valid.
-            snippet_chunk_size: Maximum character count for each snippet.
-            webpage_helper_max_threads: Maximum number of threads to use for webpage helper.
+        Initialiseert de GoogleSearch klasse.
+
+        Parameters:
+            google_search_api_key: Google API-sleutel. Zie https://developers.google.com/custom-search/v1/overview
+                sectie "API key"
+            google_cse_id: Custom search engine ID. Zie https://developers.google.com/custom-search/v1/overview
+                sectie "Search engine ID"
+            k: Aantal top resultaten om op te halen.
+            is_valid_source: Optionele functie om geldige bronnen te filteren.
+            min_char_count: Minimum aantal tekens voor een artikel om als geldig te worden beschouwd.
+            snippet_chunk_size: Maximum aantal tekens voor elk snippet.
+            webpage_helper_max_threads: Maximum aantal threads voor de webpage helper.
         """
         super().__init__(k=k)
         try:
             from googleapiclient.discovery import build
         except ImportError as err:
             raise ImportError(
-                "GoogleSearch requires `pip install google-api-python-client`."
+                "GoogleSearch vereist `pip install google-api-python-client`."
             ) from err
         if not google_search_api_key and not os.environ.get("GOOGLE_SEARCH_API_KEY"):
             raise RuntimeError(
-                "You must supply google_search_api_key or set the GOOGLE_SEARCH_API_KEY environment variable"
+                "Je moet google_search_api_key opgeven of de omgevingsvariabele GOOGLE_SEARCH_API_KEY instellen"
             )
         if not google_cse_id and not os.environ.get("GOOGLE_CSE_ID"):
             raise RuntimeError(
-                "You must supply google_cse_id or set the GOOGLE_CSE_ID environment variable"
+                "Je moet google_cse_id opgeven of de omgevingsvariabele GOOGLE_CSE_ID instellen"
             )
 
         self.google_search_api_key = (
@@ -1031,6 +1122,12 @@ class GoogleSearch(dspy.Retrieve):
         self.usage = 0
 
     def get_usage_and_reset(self):
+        """
+        Haalt het huidige gebruik op en reset het naar nul.
+
+        Returns:
+            dict: Een dictionary met de sleutel "GoogleSearch" en het huidige gebruik als waarde.
+        """
         usage = self.usage
         self.usage = 0
         return {"GoogleSearch": usage}
@@ -1038,14 +1135,15 @@ class GoogleSearch(dspy.Retrieve):
     def forward(
         self, query_or_queries: Union[str, List[str]], exclude_urls: List[str] = []
     ):
-        """Search using Google Custom Search API for self.k top results for query or queries.
+        """
+        Zoekt met de Google Custom Search API naar de top self.k resultaten voor query of queries.
 
         Args:
-            query_or_queries (Union[str, List[str]]): The query or queries to search for.
-            exclude_urls (List[str]): A list of URLs to exclude from the search results.
+            query_or_queries (Union[str, List[str]]): De query of queries om naar te zoeken.
+            exclude_urls (List[str]): Een lijst met URLs om uit te sluiten van de zoekresultaten.
 
         Returns:
-            A list of dicts, each dict has keys: 'title', 'url', 'snippet', 'description'.
+            List[Dict]: Een lijst van dictionaries, elke dictionary heeft sleutels: 'title', 'url', 'snippet', 'description'.
         """
         queries = (
             [query_or_queries]
@@ -1076,12 +1174,12 @@ class GoogleSearch(dspy.Retrieve):
                         url_to_results[item["link"]] = {
                             "title": item["title"],
                             "url": item["link"],
-                            # "snippet": item.get("snippet", ""),  # Google search snippet is very short.
+                            # "snippet": item.get("snippet", ""),  # Google zoeksnippet is erg kort.
                             "description": item.get("snippet", ""),
                         }
 
             except Exception as e:
-                logging.error(f"Error occurred while searching query {query}: {e}")
+                logging.error(f"Fout opgetreden bij het zoeken naar query {query}: {e}")
 
         valid_url_to_snippets = self.webpage_helper.urls_to_snippets(
             list(url_to_results.keys())

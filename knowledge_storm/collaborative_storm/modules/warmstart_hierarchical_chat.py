@@ -1,11 +1,15 @@
 """
-Warm starts the Co-STORM system by conducting a background information search to establish a shared conceptual space with the user.
- 
-This stage functions as a mini-STORM, where multiple LLM agents are spawned with different perspectives to engage in multi-round conversations. 
-The knowledge base (represented as a mind map) is initialized using the information gathered during these exchanges.
+Deze module initialiseert het Co-STORM systeem door een achtergrondonderzoek uit te voeren
+om een gedeelde conceptuele ruimte met de gebruiker te creëren.
 
-Additionally, the system generates a first draft of the report, which is then used to create a concise and engaging conversation. 
-The synthesized conversation is presented to the user to help them quickly catch up on the system's current knowledge about the topic.
+Deze fase functioneert als een mini-STORM, waarbij meerdere LLM-agenten met verschillende
+perspectieven worden ingezet voor meerrondig overleg. De kennisbank (weergegeven als een
+mindmap) wordt geïnitialiseerd met de informatie die tijdens deze uitwisselingen is verzameld.
+
+Daarnaast genereert het systeem een eerste conceptrapport, dat vervolgens wordt gebruikt
+om een beknopte en boeiende conversatie te creëren. Deze gesynthetiseerde conversatie
+wordt aan de gebruiker gepresenteerd om hen snel bij te praten over de huidige kennis
+van het systeem over het onderwerp.
 """
 
 import dspy
@@ -23,49 +27,48 @@ from ...logging_wrapper import LoggingWrapper
 from ...storm_wiki.modules.outline_generation import WritePageOutline
 from ...utils import ArticleTextProcessing as AP
 
-
 if TYPE_CHECKING:
     from ..engine import RunnerArgument
 
-
 class WarmStartModerator(dspy.Signature):
     """
-    You are a moderator in a roundtable discussion. The goal is to chat with multiple experts to discuss the facts and background of the topic to familiarize the audience with the topic.
-    You will be presented with the topic, the history of question you have already asked, and the current expert you are discussing with.
-    Based on these information, generate the next question for the current expert to further the discussion.
+    Je bent een moderator in een rondetafelgesprek. Het doel is om met meerdere experts te chatten
+    om de feiten en achtergrond van het onderwerp te bespreken en het publiek vertrouwd te maken met het onderwerp.
+    Je krijgt het onderwerp, de geschiedenis van vragen die je al hebt gesteld, en de huidige expert waarmee je in gesprek bent.
+    Gebaseerd op deze informatie, genereer je de volgende vraag voor de huidige expert om de discussie verder te brengen.
 
-    The output should only include the next question for the current expert. Do not include any other information or preamble.
+    De output moet alleen de volgende vraag voor de huidige expert bevatten. Voeg geen andere informatie of inleiding toe.
     """
 
-    topic = dspy.InputField(prefix="Topic for roundtable discussion: ", format=str)
+    topic = dspy.InputField(prefix="Onderwerp voor rondetafelgesprek: ", format=str)
     history = dspy.InputField(
-        prefix="Experts you have already interacted with: ", format=str
+        prefix="Experts waarmee je al hebt geïnteracteerd: ", format=str
     )
-    current_expert = dspy.InputField(prefix="Expert you are talking with:", format=str)
+    current_expert = dspy.InputField(prefix="Expert waarmee je praat:", format=str)
     question = dspy.OutputField(
-        prefix="Next question for the expert you are talking with: ", format=str
+        prefix="Volgende vraag voor de expert waarmee je praat: ", format=str
     )
-
 
 class SectionToConvTranscript(dspy.Signature):
     """
-    You are given a section of a brief report on a specific topic. Your task is to transform this section into an engaging opening discussion for a roundtable conversation.
-    The goal is to help participants and the audience quickly understand the key information.
-    Both question and answer should be in the tone of roundtable discussion talking to audiences.
+    Je krijgt een sectie van een kort rapport over een specifiek onderwerp. Je taak is om deze sectie
+    om te zetten in een boeiende openingsdiscussie voor een rondetafelgesprek.
+    Het doel is om deelnemers en het publiek snel de belangrijkste informatie te laten begrijpen.
+    Zowel vraag als antwoord moeten in de toon van een rondetafelgesprek zijn, gericht op het publiek.
 
-    Specifically, you need to:
-    1. Generate an engaging question that leverages section name and topic that opens discussion of the content.
-    2. Provide a brief and engaging answer (with all inline citations from original text) derived from the section serving as pointers and avoid too much details.
+    Specifiek moet je:
+    1. Een boeiende vraag genereren die gebruik maakt van de sectienaam en het onderwerp om de discussie over de inhoud te openen.
+    2. Een kort en boeiend antwoord geven (met alle inline citaten uit de originele tekst) afgeleid van de sectie,
+       die dient als aanknopingspunten en te veel details vermijdt.
     """
 
-    topic = dspy.InputField(prefix="topic:", format=str)
-    section_name = dspy.InputField(prefix="section name:", format=str)
-    section_content = dspy.InputField(prefix="section content:", format=str)
-    question = dspy.OutputField(prefix="Now give engaging question only.\nQuestion:")
+    topic = dspy.InputField(prefix="onderwerp:", format=str)
+    section_name = dspy.InputField(prefix="sectienaam:", format=str)
+    section_content = dspy.InputField(prefix="sectie-inhoud:", format=str)
+    question = dspy.OutputField(prefix="Geef nu alleen een boeiende vraag.\nVraag:")
     answer = dspy.OutputField(
-        prefix="Now give engaging answer only with all inline citations from original text.\nAnswer:"
+        prefix="Geef nu alleen een boeiend antwoord met alle inline citaten uit de originele tekst.\nAntwoord:"
     )
-
 
 class ReportToConversation(dspy.Module):
     def __init__(self, engine: Union[dspy.dsp.LM, dspy.dsp.HFModel]):
@@ -74,14 +77,15 @@ class ReportToConversation(dspy.Module):
 
     def forward(self, knowledge_base: KnowledgeBase):
         def process_node(node, topic):
+            # Verwerkt een enkele node om een vraag en antwoord te genereren
             with dspy.settings.context(lm=self.engine, show_guidelines=False):
                 output = self.section_to_conv_transcript(
                     topic=topic,
                     section_name=node.get_path_from_root(),
                     section_content=node.synthesize_output,
                 )
-                question = output.question.replace("Question:", "").strip()
-                answer = output.answer.replace("Answer:", "").strip()
+                question = output.question.replace("Vraag:", "").strip()
+                answer = output.answer.replace("Antwoord:", "").strip()
                 return question, answer
 
         conversations = []
@@ -89,6 +93,7 @@ class ReportToConversation(dspy.Module):
         nodes = [node for node in nodes if node.name != "root" and node.content]
         topic = knowledge_base.topic
 
+        # Gebruik multi-threading om de verwerking van nodes te versnellen
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future_to_node = {
                 executor.submit(process_node, node, topic): node for node in nodes
@@ -98,9 +103,9 @@ class ReportToConversation(dspy.Module):
                 question, answer = future.result()
                 conversations.append(
                     ConversationTurn(
-                        role="Background discussion moderator",
+                        role="Achtergrondgesprek moderator",
                         raw_utterance=question,
-                        utterance_type="Original Question",
+                        utterance_type="Originele Vraag",
                         utterance=question,
                         cited_info=[
                             knowledge_base.info_uuid_to_info_dict[idx]
@@ -110,9 +115,9 @@ class ReportToConversation(dspy.Module):
                 )
                 conversations.append(
                     ConversationTurn(
-                        role="Background discussion expert",
+                        role="Achtergrondgesprek expert",
                         raw_utterance=answer,
-                        utterance_type="Potential Answer",
+                        utterance_type="Potentieel Antwoord",
                         utterance=answer,
                         cited_info=[
                             knowledge_base.info_uuid_to_info_dict[idx]
@@ -121,7 +126,6 @@ class ReportToConversation(dspy.Module):
                     )
                 )
         return conversations
-
 
 class WarmStartConversation(dspy.Module):
     def __init__(
@@ -148,6 +152,7 @@ class WarmStartConversation(dspy.Module):
     def format_dialogue_question_history_string(
         self, conversation_history: List[ConversationTurn]
     ):
+        # Formatteert de gespreksgeschiedenis voor gebruik in volgende vragen
         output = []
         for idx, turn in enumerate(conversation_history):
             info = turn.claim_to_make if turn.claim_to_make else turn.utterance
@@ -155,6 +160,7 @@ class WarmStartConversation(dspy.Module):
         return "\n".join(output)
 
     def generate_warmstart_experts(self, topic: str):
+        # Genereert experts en achtergrondinformatie voor het warmstart-proces
         background_seeking_dialogue = self.get_background_info(topic=topic)
         background_info = background_seeking_dialogue.utterance
         gen_expert_output = self.generate_experts_module(
@@ -165,15 +171,16 @@ class WarmStartConversation(dspy.Module):
         return gen_expert_output.experts, background_seeking_dialogue
 
     def get_background_info(self, topic: str):
-        question = f"Background information about {topic}"
+        # Haalt achtergrondinformatie op over het gegeven onderwerp
+        question = f"Achtergrondinformatie over {topic}"
         answer = self.answer_question_module(
             topic=topic, question=question, mode="extensive", style="conversational"
         )
 
         return ConversationTurn(
-            role="Default Background Researcher",
+            role="Standaard Achtergrondonderzoeker",
             raw_utterance=answer.response,
-            utterance_type="Questioning",
+            utterance_type="Vragenstellen",
             claim_to_make=question,
             queries=answer.queries,
             raw_retrieved_info=answer.raw_retrieved_info,
@@ -182,22 +189,22 @@ class WarmStartConversation(dspy.Module):
 
     def forward(self, topic: str):
         with self.logging_wrapper.log_event(
-            "warm start, perspective guided QA: identify experts"
+            "warm start, perspectief-geleide VenA: experts identificeren"
         ):
-            # do background research, generate some experts
+            # Voer achtergrondonderzoek uit, genereer enkele experts
             experts, background_seeking_dialogue = self.generate_warmstart_experts(
                 topic=topic
             )
-        # init list to store the dialogue history
+        # Initialiseer lijst om de gespreksgeschiedenis op te slaan
         conversation_history: List[ConversationTurn] = []
         lock = Lock()
 
-        # hierarchical chat: chat with one expert. Generate question, get answer
+        # Hiërarchische chat: chat met één expert. Genereer vraag, krijg antwoord
         def process_expert(expert):
-            expert_name, expert_descriptoin = expert.split(":")
+            expert_name, expert_description = expert.split(":")
             for idx in range(self.max_turn_per_experts):
                 with self.logging_wrapper.log_event(
-                    f"warm start, perspective guided QA: expert {expert_name}; turn {idx + 1}"
+                    f"warm start, perspectief-geleide VenA: expert {expert_name}; beurt {idx + 1}"
                 ):
                     try:
                         with lock:
@@ -218,7 +225,7 @@ class WarmStartConversation(dspy.Module):
                             role=expert,
                             claim_to_make=question,
                             raw_utterance=answer.response,
-                            utterance_type="Support",
+                            utterance_type="Ondersteuning",
                             queries=answer.queries,
                             raw_retrieved_info=answer.raw_retrieved_info,
                             cited_info=answer.cited_info,
@@ -227,7 +234,7 @@ class WarmStartConversation(dspy.Module):
                             self.callback_handler.on_warmstart_update(
                                 message="\n".join(
                                     [
-                                        f"Finish browsing {url}"
+                                        f"Klaar met browsen {url}"
                                         for url in [
                                             i.url for i in answer.raw_retrieved_info
                                         ]
@@ -237,9 +244,9 @@ class WarmStartConversation(dspy.Module):
                         with lock:
                             conversation_history.append(conversation_turn)
                     except Exception as e:
-                        print(f"Error processing expert {expert}: {e}")
+                        print(f"Fout bij het verwerken van expert {expert}: {e}")
 
-        # multi-thread conversation
+        # Multi-thread conversatie
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=self.max_thread
         ) as executor:
@@ -255,26 +262,26 @@ class WarmStartConversation(dspy.Module):
             conversation_history=conversation_history, experts=experts
         )
 
-
 class GenerateWarmStartOutline(dspy.Signature):
-    """Generate a outline of the wikipedia-like report from a roundtable discussion. You will be presented discussion points in the conversation and corresponding queries.
-    You will be given a draft outline which you can borrow some inspiration. Do not include sections that are not mentioned in the given discussion history.
-    Use "#" to denote section headings, "##" to denote subsection headings, and so on.
-     Follow these guidelines:
-     1. Use "#" for section titles, "##" for subsection titles, "###" for subsubsection titles, and so on.
-     2. Do not include any additional information.
-     3. Exclude the topic name from the outline.
-     The organization of outline should adopt wikiepdia style.
+    """Genereer een outline van het wikipedia-achtige rapport van een rondetafelgesprek. Je krijgt discussiepunten
+    uit het gesprek en bijbehorende zoekopdrachten te zien.
+    Je krijgt een conceptoutline waaruit je inspiratie kunt putten. Neem geen secties op die niet genoemd worden
+    in de gegeven gespreksgeschiedenis.
+    Gebruik "#" om sectiekoppen aan te geven, "##" voor subsectiekoppen, enzovoort.
+     Volg deze richtlijnen:
+     1. Gebruik "#" voor sectietitels, "##" voor subsectietitels, "###" voor subsubsectietitels, enzovoort.
+     2. Voeg geen aanvullende informatie toe.
+     3. Sluit de onderwerpnaam uit van de outline.
+     De organisatie van de outline moet de Wikipedia-stijl aannemen.
     """
 
-    topic = dspy.InputField(prefix="The topic discussed: ", format=str)
-    draft = dspy.InputField(prefix="Draft outline you can reference to: ", format=str)
-    conv = dspy.InputField(prefix="Discussion history:\n", format=str)
+    topic = dspy.InputField(prefix="Het besproken onderwerp: ", format=str)
+    draft = dspy.InputField(prefix="Conceptoutline waar je naar kunt verwijzen: ", format=str)
+    conv = dspy.InputField(prefix="Gespreksgeschiedenis:\n", format=str)
     outline = dspy.OutputField(
-        prefix='Write the conversation outline (Use "#" Title" to indicate section title, "##" Title" to indicate subsection title, ...):\n',
+        prefix='Schrijf de gespreksoutline (Gebruik "#" Titel" om een sectietitel aan te geven, "##" Titel" om een subsectietitel aan te geven, ...):\n',
         format=str,
     )
-
 
 class GenerateWarmStartOutlineModule(dspy.Module):
     def __init__(self, engine: Union[dspy.dsp.LM, dspy.dsp.HFModel]):
@@ -283,18 +290,20 @@ class GenerateWarmStartOutlineModule(dspy.Module):
         self.draft_outline = dspy.Predict(WritePageOutline)
 
     def extract_questions_and_queries(self, conv: List[ConversationTurn]):
+        # Extraheert vragen en zoekopdrachten uit de gespreksgeschiedenis
         context = []
         for turn in conv:
             focus = turn.claim_to_make
             queries = turn.queries
             queries_string = "\n\t".join(
-                f"Query {idx + 1}: {query}" for idx, query in enumerate(queries)
+                f"Zoekopdracht {idx + 1}: {query}" for idx, query in enumerate(queries)
             )
-            string = f"Discussion focus {len(context) + 1}: {focus}\n\t{queries_string}"
+            string = f"Discussiefocus {len(context) + 1}: {focus}\n\t{queries_string}"
             context.append(string)
         return "\n".join(context)
 
     def get_draft_outline(self, topic: str):
+        # Genereert een conceptoutline voor het gegeven onderwerp
         with dspy.settings.context(lm=self.engine):
             return self.draft_outline(topic=topic).outline
 
@@ -307,7 +316,6 @@ class GenerateWarmStartOutlineModule(dspy.Module):
             ).outline
             outline = AP.clean_up_outline(outline)
         return dspy.Prediction(outline=outline, draft_outline=draft_outline)
-
 
 class WarmStartModule:
     def __init__(
@@ -345,61 +353,61 @@ class WarmStartModule:
 
     def initiate_warm_start(self, topic: str, knowledge_base: KnowledgeBase):
         """
-        Initiates a warm start process for the given topic by generating a warm start conversation and inserting the
-        resulting information into a knowledge base.
+        Initieert een warm start-proces voor het gegeven onderwerp door een warm start-gesprek te genereren en
+        de resulterende informatie in een kennisbank in te voegen.
 
         Args:
-            topic (str): The topic for which to initiate the warm start process.
+            topic (str): Het onderwerp waarvoor het warm start-proces moet worden geïnitieerd.
 
         Returns:
             Tuple[List[ConversationTurn], List[str], KnowledgeBase]:
-                - A list of ConversationTurn instances representing the conversation history.
-                - A list of strings representing the experts involved in the conversation.
-                - A KnowledgeBase instance containing the organized information.
+                - Een lijst van ConversationTurn-instanties die de gespreksgeschiedenis vertegenwoordigen.
+                - Een lijst van strings die de experts vertegenwoordigen die bij het gesprek betrokken zijn.
+                - Een KnowledgeBase-instantie die de georganiseerde informatie bevat.
         """
         warm_start_conversation_history: List[ConversationTurn] = []
         warm_start_experts = None
-        # get warm start conversations
-        with self.logging_wrapper.log_event("warm start: perspective guided QA"):
+        # Haal warm start-gesprekken op
+        with self.logging_wrapper.log_event("warm start: perspectief-geleide VenA"):
             if self.callback_handler is not None:
                 self.callback_handler.on_warmstart_update(
-                    message="Start getting familiar with the topic by chatting with multiple LLM experts (Step 1 / 4)"
+                    message="Start met vertrouwd raken met het onderwerp door te chatten met meerdere LLM-experts (Stap 1 / 4)"
                 )
             warm_start_result = self.warmstart_conv(topic=topic)
             warm_start_conversation_history = warm_start_result.conversation_history
             warm_start_experts = warm_start_result.experts
 
-        # get warm start conv outline
-        with self.logging_wrapper.log_event("warm start: outline generation"):
+        # Haal warm start-gespreksoutline op
+        with self.logging_wrapper.log_event("warm start: outline generatie"):
             if self.callback_handler is not None:
                 self.callback_handler.on_warmstart_update(
-                    "Organizing collected information (Step 2 / 4)"
+                    "Verzamelde informatie organiseren (Stap 2 / 4)"
                 )
             warm_start_outline_output = self.warmstart_outline_gen_module(
                 topic=topic, conv=warm_start_conversation_history
             )
-        # init knowledge base
-        with self.logging_wrapper.log_event("warm start: insert into knowledge base"):
+        # Initialiseer kennisbank
+        with self.logging_wrapper.log_event("warm start: invoegen in kennisbank"):
             if self.callback_handler is not None:
                 self.callback_handler.on_warmstart_update(
-                    "Inserting collected information into knowledge base (Step 3 / 4)"
+                    "Verzamelde informatie invoegen in kennisbank (Stap 3 / 4)"
                 )
             knowledge_base.insert_from_outline_string(
                 outline_string=warm_start_outline_output.outline
             )
-            # insert information to knowledge base
+            # Voeg informatie in de kennisbank in
             for turn in warm_start_conversation_history:
                 knowledge_base.update_from_conv_turn(
                     conv_turn=turn, allow_create_new_node=False
                 )
-        # knowledge base to report
+        # Kennisbank naar rapport
         if self.callback_handler is not None:
             self.callback_handler.on_warmstart_update(
-                "Synthesizing background information discussion utterances (Step 4 / 4)"
+                "Achtergrondinformatie discussie-uitspraken synthetiseren (Stap 4 / 4)"
             )
         knowledge_base.to_report()
 
-        # generate engaging conversations
+        # Genereer boeiende gesprekken
         engaging_conversations = self.report_to_conversation(knowledge_base)
         return (
             warm_start_conversation_history,

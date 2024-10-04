@@ -22,63 +22,96 @@ from trafilatura import extract
 
 from .lm import OpenAIModel
 
-logging.getLogger("httpx").setLevel(logging.WARNING)  # Disable INFO logging for httpx.
-
+# Schakel INFO logging uit voor httpx om onnodige output te verminderen
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def truncate_filename(filename, max_length=125):
-    """Truncate filename to max_length to ensure the filename won't exceed the file system limit.
+    """
+    Kort een bestandsnaam in tot de opgegeven maximale lengte om bestandssysteemlimieten te respecteren.
 
     Args:
-        filename: str
-        max_length: int, default to 125 (usual path length limit is 255 chars)
-    """
+        filename: str - De originele bestandsnaam
+        max_length: int - Maximale toegestane lengte, standaard 125 (gebruikelijke padlengte limiet is 255 tekens)
 
+    Returns:
+        str: Ingekorte bestandsnaam indien nodig, anders de originele naam
+    """
     if len(filename) > max_length:
         truncated_filename = filename[:max_length]
         logging.warning(
-            f"Filename is too long. Filename is truncated to {truncated_filename}."
+            f"Bestandsnaam is te lang. Ingekort tot {truncated_filename}."
         )
         return truncated_filename
 
     return filename
 
-
 def load_api_key(toml_file_path):
+    """
+    Laadt API-sleutels uit een TOML-bestand en stelt deze in als omgevingsvariabelen.
+
+    Args:
+        toml_file_path: str - Pad naar het TOML-bestand met API-sleutels
+
+    Raises:
+        FileNotFoundError: Als het opgegeven bestand niet gevonden kan worden
+        toml.TomlDecodeError: Als het TOML-bestand niet correct gedecodeerd kan worden
+    """
     try:
         with open(toml_file_path, "r") as file:
             data = toml.load(file)
     except FileNotFoundError:
-        print(f"File not found: {toml_file_path}", file=sys.stderr)
+        print(f"Bestand niet gevonden: {toml_file_path}", file=sys.stderr)
         return
     except toml.TomlDecodeError:
-        print(f"Error decoding TOML file: {toml_file_path}", file=sys.stderr)
+        print(f"Fout bij decoderen van TOML-bestand: {toml_file_path}", file=sys.stderr)
         return
-    # Set environment variables
+    
+    # Stel omgevingsvariabelen in
     for key, value in data.items():
         os.environ[key] = str(value)
 
-
 def makeStringRed(message):
-    return f"\033[91m {message}\033[00m"
+    """
+    Maakt een string rood voor console-output.
 
+    Args:
+        message: str - De string die rood gemaakt moet worden
+
+    Returns:
+        str: De string omgeven door ANSI-escapesequenties voor rode tekst
+    """
+    return f"\033[91m {message}\033[00m"
 
 class QdrantVectorStoreManager:
     """
-    Helper class for managing the Qdrant vector store, can be used with `VectorRM` in rm.py.
+    Hulpklasse voor het beheren van de Qdrant vectoropslag, te gebruiken met `VectorRM` in rm.py.
 
-    Before you initialize `VectorRM`, call `create_or_update_vector_store` to create or update the vector store.
-    Once you have the vector store, you can initialize `VectorRM` with the vector store path or the Qdrant server URL.
+    Voor het initialiseren van `VectorRM`, roep `create_or_update_vector_store` aan om de vectoropslag te maken of bij te werken.
+    Zodra je de vectoropslag hebt, kun je `VectorRM` initialiseren met het pad naar de vectoropslag of de Qdrant server URL.
     """
 
     @staticmethod
     def _check_create_collection(
         client: QdrantClient, collection_name: str, model: HuggingFaceEmbeddings
     ):
-        """Check if the Qdrant collection exists and create it if it does not."""
+        """
+        Controleert of de Qdrant-collectie bestaat en maakt deze aan als dat niet het geval is.
+
+        Args:
+            client: QdrantClient - De geïnitialiseerde Qdrant-client
+            collection_name: str - Naam van de te controleren/maken collectie
+            model: HuggingFaceEmbeddings - Het embeddings-model voor de vectoropslag
+
+        Returns:
+            Qdrant: Een geïnitialiseerde Qdrant-instantie
+
+        Raises:
+            ValueError: Als de Qdrant-client niet is geïnitialiseerd
+        """
         if client is None:
-            raise ValueError("Qdrant client is not initialized.")
+            raise ValueError("Qdrant-client is niet geïnitialiseerd.")
         if client.collection_exists(collection_name=f"{collection_name}"):
-            print(f"Collection {collection_name} exists. Loading the collection...")
+            print(f"Collectie {collection_name} bestaat. Collectie wordt geladen...")
             return Qdrant(
                 client=client,
                 collection_name=collection_name,
@@ -86,9 +119,9 @@ class QdrantVectorStoreManager:
             )
         else:
             print(
-                f"Collection {collection_name} does not exist. Creating the collection..."
+                f"Collectie {collection_name} bestaat niet. Collectie wordt aangemaakt..."
             )
-            # create the collection
+            # Maak de collectie aan
             client.create_collection(
                 collection_name=f"{collection_name}",
                 vectors_config=models.VectorParams(
@@ -105,18 +138,27 @@ class QdrantVectorStoreManager:
     def _init_online_vector_db(
         url: str, api_key: str, collection_name: str, model: HuggingFaceEmbeddings
     ):
-        """Initialize the Qdrant client that is connected to an online vector store with the given URL and API key.
+        """
+        Initialiseert de Qdrant-client die verbonden is met een online vectoropslag met de gegeven URL en API-sleutel.
 
         Args:
-            url (str): URL of the Qdrant server.
-            api_key (str): API key for the Qdrant server.
+            url: str - URL van de Qdrant-server
+            api_key: str - API-sleutel voor de Qdrant-server
+            collection_name: str - Naam van de collectie
+            model: HuggingFaceEmbeddings - Het embeddings-model voor de vectoropslag
+
+        Returns:
+            Qdrant: Een geïnitialiseerde Qdrant-instantie
+
+        Raises:
+            ValueError: Als er geen API-sleutel of URL is opgegeven, of als er een fout optreedt bij het verbinden met de server
         """
         if api_key is None:
             if not os.getenv("QDRANT_API_KEY"):
-                raise ValueError("Please provide an api key.")
+                raise ValueError("Geef een API-sleutel op.")
             api_key = os.getenv("QDRANT_API_KEY")
         if url is None:
-            raise ValueError("Please provide a url for the Qdrant server.")
+            raise ValueError("Geef een URL op voor de Qdrant-server.")
 
         try:
             client = QdrantClient(url=url, api_key=api_key)
@@ -124,19 +166,28 @@ class QdrantVectorStoreManager:
                 client=client, collection_name=collection_name, model=model
             )
         except Exception as e:
-            raise ValueError(f"Error occurs when connecting to the server: {e}")
+            raise ValueError(f"Fout bij het verbinden met de server: {e}")
 
     @staticmethod
     def _init_offline_vector_db(
         vector_store_path: str, collection_name: str, model: HuggingFaceEmbeddings
     ):
-        """Initialize the Qdrant client that is connected to an offline vector store with the given vector store folder path.
+        """
+        Initialiseert de Qdrant-client die verbonden is met een offline vectoropslag met het gegeven pad naar de vectoropslagmap.
 
         Args:
-            vector_store_path (str): Path to the vector store.
+            vector_store_path: str - Pad naar de vectoropslag
+            collection_name: str - Naam van de collectie
+            model: HuggingFaceEmbeddings - Het embeddings-model voor de vectoropslag
+
+        Returns:
+            Qdrant: Een geïnitialiseerde Qdrant-instantie
+
+        Raises:
+            ValueError: Als er geen mappad is opgegeven of als er een fout optreedt bij het laden van de vectoropslag
         """
         if vector_store_path is None:
-            raise ValueError("Please provide a folder path.")
+            raise ValueError("Geef een mappad op.")
 
         try:
             client = QdrantClient(path=vector_store_path)
@@ -144,7 +195,7 @@ class QdrantVectorStoreManager:
                 client=client, collection_name=collection_name, model=model
             )
         except Exception as e:
-            raise ValueError(f"Error occurs when loading the vector store: {e}")
+            raise ValueError(f"Fout bij het laden van de vectoropslag: {e}")
 
     @staticmethod
     def create_or_update_vector_store(
@@ -165,30 +216,33 @@ class QdrantVectorStoreManager:
         device: str = "mps",
     ):
         """
-        Takes a CSV file and adds each row in the CSV file to the Qdrant collection.
+        Neemt een CSV-bestand en voegt elke rij in het CSV-bestand toe aan de Qdrant-collectie.
 
-        This function expects each row of the CSV file as a document.
-        The CSV file should have columns for "content", "title", "URL", and "description".
+        Deze functie verwacht elke rij van het CSV-bestand als een document.
+        Het CSV-bestand moet kolommen hebben voor "content", "title", "URL" en "description".
 
         Args:
-            collection_name: Name of the Qdrant collection.
-            vector_store_path (str): Path to the directory where the vector store is stored or will be stored.
-            vector_db_mode (str): Mode of the Qdrant vector store (offline or online).
-            file_path (str): Path to the CSV file.
-            content_column (str): Name of the column containing the content.
-            title_column (str): Name of the column containing the title. Default is "title".
-            url_column (str): Name of the column containing the URL. Default is "url".
-            desc_column (str): Name of the column containing the description. Default is "description".
-            batch_size (int): Batch size for adding documents to the collection.
-            chunk_size: Size of each chunk if you need to build the vector store from documents.
-            chunk_overlap: Overlap between chunks if you need to build the vector store from documents.
-            embedding_model: Name of the Hugging Face embedding model.
-            device: Device to run the embeddings model on, can be "mps", "cuda", "cpu".
-            qdrant_api_key: API key for the Qdrant server (Only required if the Qdrant server is online).
+            collection_name: Naam van de Qdrant-collectie
+            vector_store_path: Pad naar de map waar de vectoropslag is opgeslagen of zal worden opgeslagen
+            vector_db_mode: Modus van de Qdrant vectoropslag (offline of online)
+            file_path: Pad naar het CSV-bestand
+            content_column: Naam van de kolom met de inhoud
+            title_column: Naam van de kolom met de titel (standaard "title")
+            url_column: Naam van de kolom met de URL (standaard "url")
+            desc_column: Naam van de kolom met de beschrijving (standaard "description")
+            batch_size: Batchgrootte voor het toevoegen van documenten aan de collectie
+            chunk_size: Grootte van elk fragment als je de vectoropslag moet bouwen vanuit documenten
+            chunk_overlap: Overlap tussen fragmenten als je de vectoropslag moet bouwen vanuit documenten
+            embedding_model: Naam van het Hugging Face embedding-model
+            device: Apparaat om het embeddings-model op uit te voeren, kan "mps", "cuda", "cpu" zijn
+            qdrant_api_key: API-sleutel voor de Qdrant-server (alleen vereist als de Qdrant-server online is)
+
+        Raises:
+            ValueError: Als vereiste parameters ontbreken of ongeldig zijn
         """
-        # check if the collection name is provided
+        # Controleer of de collectienaam is opgegeven
         if collection_name is None:
-            raise ValueError("Please provide a collection name.")
+            raise ValueError("Geef een collectienaam op.")
 
         model_kwargs = {"device": device}
         encode_kwargs = {"normalize_embeddings": True}
@@ -199,16 +253,16 @@ class QdrantVectorStoreManager:
         )
 
         if file_path is None:
-            raise ValueError("Please provide a file path.")
-        # check if the file is a csv file
+            raise ValueError("Geef een bestandspad op.")
+        # Controleer of het bestand een csv-bestand is
         if not file_path.endswith(".csv"):
-            raise ValueError(f"Not valid file format. Please provide a csv file.")
+            raise ValueError(f"Ongeldig bestandsformaat. Geef een csv-bestand op.")
         if content_column is None:
-            raise ValueError("Please provide the name of the content column.")
+            raise ValueError("Geef de naam van de inhoudskolom op.")
         if url_column is None:
-            raise ValueError("Please provide the name of the url column.")
+            raise ValueError("Geef de naam van de url-kolom op.")
 
-        # try to initialize the Qdrant client
+        # Probeer de Qdrant-client te initialiseren
         qdrant = None
         if vector_db_mode == "online":
             qdrant = QdrantVectorStoreManager._init_online_vector_db(
@@ -225,20 +279,20 @@ class QdrantVectorStoreManager:
             )
         else:
             raise ValueError(
-                "Invalid vector_db_mode. Please provide either 'online' or 'offline'."
+                "Ongeldige vector_db_mode. Geef 'online' of 'offline' op."
             )
         if qdrant is None:
-            raise ValueError("Qdrant client is not initialized.")
+            raise ValueError("Qdrant-client is niet geïnitialiseerd.")
 
-        # read the csv file
+        # Lees het csv-bestand
         df = pd.read_csv(file_path)
-        # check that content column exists and url column exists
+        # Controleer of de inhoudskolom en url-kolom bestaan
         if content_column not in df.columns:
             raise ValueError(
-                f"Content column {content_column} not found in the csv file."
+                f"Inhoudskolom {content_column} niet gevonden in het csv-bestand."
             )
         if url_column not in df.columns:
-            raise ValueError(f"URL column {url_column} not found in the csv file.")
+            raise ValueError(f"URL-kolom {url_column} niet gevonden in het csv-bestand.")
 
         documents = [
             Document(
@@ -252,7 +306,7 @@ class QdrantVectorStoreManager:
             for row in df.to_dict(orient="records")
         ]
 
-        # split the documents
+        # Splits de documenten
         from langchain_text_splitters import RecursiveCharacterTextSplitter
 
         text_splitter = RecursiveCharacterTextSplitter(
@@ -276,7 +330,7 @@ class QdrantVectorStoreManager:
         )
         split_documents = text_splitter.split_documents(documents)
 
-        # update and save the vector store
+        # Werk de vectoropslag bij en sla deze op
         num_batches = (len(split_documents) + batch_size - 1) // batch_size
         for i in tqdm(range(num_batches)):
             start_idx = i * batch_size
@@ -286,28 +340,27 @@ class QdrantVectorStoreManager:
                 batch_size=batch_size,
             )
 
-        # close the qdrant client
+        # Sluit de qdrant-client
         qdrant.client.close()
-
 
 class ArticleTextProcessing:
     @staticmethod
     def limit_word_count_preserve_newline(input_string, max_word_count):
         """
-        Limit the word count of an input string to a specified maximum, while preserving the integrity of complete lines.
+        Beperkt het aantal woorden van een invoerstring tot een opgegeven maximum, 
+        terwijl de integriteit van volledige regels behouden blijft.
 
-        The function truncates the input string at the nearest word that does not exceed the maximum word count,
-        ensuring that no partial lines are included in the output. Words are defined as text separated by spaces,
-        and lines are defined as text separated by newline characters.
+        De functie kapt de invoerstring af bij het dichtstbijzijnde woord dat het maximale aantal woorden niet overschrijdt,
+        waarbij ervoor wordt gezorgd dat er geen gedeeltelijke regels in de uitvoer worden opgenomen. Woorden worden gedefinieerd als
+        tekst gescheiden door spaties, en regels worden gedefinieerd als tekst gescheiden door nieuwe-regel-tekens.
 
         Args:
-            input_string (str): The string to be truncated. This string may contain multiple lines.
-            max_word_count (int): The maximum number of words allowed in the truncated string.
+            input_string (str): De string die moet worden afgekapt. Deze string kan meerdere regels bevatten.
+            max_word_count (int): Het maximale aantal woorden dat is toegestaan in de afgekapte string.
 
         Returns:
-            str: The truncated string with word count limited to `max_word_count`, preserving complete lines.
+            str: De afgekapte string met het aantal woorden beperkt tot `max_word_count`, waarbij volledige regels behouden blijven.
         """
-
         word_count = 0
         limited_string = ""
 
@@ -328,29 +381,28 @@ class ArticleTextProcessing:
     @staticmethod
     def remove_citations(s):
         """
-        Removes all citations from a given string. Citations are assumed to be in the format
-        of numbers enclosed in square brackets, such as [1], [2], or [1, 2], etc. This function searches
-        for all occurrences of such patterns and removes them, returning the cleaned string.
+        Verwijdert alle citaten uit een gegeven string. Citaten worden verondersteld in het formaat
+        van getallen tussen vierkante haken te zijn, zoals [1], [2], of [1, 2], etc. Deze functie zoekt
+        naar alle voorkomens van dergelijke patronen en verwijdert ze, waarbij de opgeschoonde string wordt teruggegeven.
 
         Args:
-            s (str): The string from which citations are to be removed.
+            s (str): De string waaruit citaten moeten worden verwijderd.
 
         Returns:
-            str: The string with all citation patterns removed.
+            str: De string met alle citatiepatronen verwijderd.
         """
-
         return re.sub(r"\[\d+(?:,\s*\d+)*\]", "", s)
 
     @staticmethod
     def parse_citation_indices(s):
         """
-        Extracts citation indexes from the provided content string and returns them as a list of integers.
+        Extraheert citatie-indexen uit de opgegeven inhoudsstring en geeft ze terug als een lijst van gehele getallen.
 
         Args:
-            content (str): The content string containing citations in the format [number].
+            content (str): De inhoudsstring die citaties bevat in het formaat [nummer].
 
         Returns:
-            List[int]: A list of unique citation indexes extracted from the content, in the order they appear.
+            List[int]: Een lijst van unieke citatie-indexen geëxtraheerd uit de inhoud, in de volgorde waarin ze voorkomen.
         """
         matches = re.findall(r"\[\d+\]", s)
         return [int(index[1:-1]) for index in matches]
@@ -358,56 +410,38 @@ class ArticleTextProcessing:
     @staticmethod
     def remove_uncompleted_sentences_with_citations(text):
         """
-        Removes uncompleted sentences and standalone citations from the input text. Sentences are identified
-        by their ending punctuation (.!?), optionally followed by a citation in square brackets (e.g., "[1]").
-        Grouped citations (e.g., "[1, 2]") are split into individual ones (e.g., "[1] [2]"). Only text up to
-        and including the last complete sentence and its citation is retained.
+        Verwijdert onvoltooide zinnen en losstaande citaties uit de invoertekst. Zinnen worden geïdentificeerd
+        door hun eindende leesteken (.!?), optioneel gevolgd door een citatie tussen vierkante haken (bijv. "[1]").
+        Gegroepeerde citaties (bijv. "[1, 2]") worden gesplitst in individuele citaties (bijv. "[1] [2]"). Alleen tekst tot
+        en met de laatste volledige zin en zijn citatie wordt behouden.
 
         Args:
-            text (str): The input text from which uncompleted sentences and their citations are to be removed.
+            text (str): De invoertekst waaruit onvoltooide zinnen en hun citaties moeten worden verwijderd.
 
         Returns:
-            str: The processed string with uncompleted sentences and standalone citations removed, leaving only
-            complete sentences and their associated citations if present.
+            str: De verwerkte string met onvoltooide zinnen en losstaande citaties verwijderd, waarbij alleen
+            volledige zinnen en hun bijbehorende citaties (indien aanwezig) overblijven.
         """
 
-        # Convert citations like [1, 2, 3] to [1][2][3].
+        # Zet citaties zoals [1, 2, 3] om naar [1][2][3].
         def replace_with_individual_brackets(match):
             numbers = match.group(1).split(", ")
             return " ".join(f"[{n}]" for n in numbers)
 
-        # Deduplicate and sort individual groups of citations.
+        # Verwijder duplicaten en sorteer individuele groepen citaties.
         def deduplicate_group(match):
             citations = match.group(0)
             unique_citations = list(set(re.findall(r"\[\d+\]", citations)))
             sorted_citations = sorted(
                 unique_citations, key=lambda x: int(x.strip("[]"))
             )
-            # Return the sorted unique citations as a string
+            # Geef de gesorteerde unieke citaties terug als een string
             return "".join(sorted_citations)
 
         text = re.sub(r"\[([0-9, ]+)\]", replace_with_individual_brackets, text)
         text = re.sub(r"(\[\d+\])+", deduplicate_group, text)
 
-        # Deprecated: Remove sentence without proper ending punctuation and citations.
-        # Split the text into sentences (including citations).
-        # sentences_with_trailing = re.findall(r'([^.!?]*[.!?].*?)(?=[^.!?]*[.!?]|$)', text)
-
-        # Filter sentences to ensure they end with a punctuation mark and properly formatted citations
-        # complete_sentences = []
-        # for sentence in sentences_with_trailing:
-        #     # Check if the sentence ends with properly formatted citations
-        #     if re.search(r'[.!?]( \[\d+\])*$|^[^.!?]*[.!?]$', sentence.strip()):
-        #         complete_sentences.append(sentence.strip())
-
-        # combined_sentences = ' '.join(complete_sentences)
-
-        # Check for and append any complete citations that follow the last sentence
-        # trailing_citations = re.findall(r'(\[\d+\]) ', text[text.rfind(combined_sentences) + len(combined_sentences):])
-        # if trailing_citations:
-        #     combined_sentences += ' '.join(trailing_citations)
-
-        # Regex pattern to match sentence endings, including optional citation markers.
+        # Regex-patroon om zinseinden te matchen, inclusief optionele citatiemarkeringen.
         eos_pattern = r"([.!?])\s*(\[\d+\])?\s*"
         matches = list(re.finditer(eos_pattern, text))
         if matches:
@@ -418,6 +452,18 @@ class ArticleTextProcessing:
 
     @staticmethod
     def clean_up_citation(conv):
+        """
+        Schoont citaties op in een conversatie-object.
+
+        Deze methode verwijdert referenties en bronnen aan het einde van elke uiting van de agent,
+        verwijdert het "Answer:" voorvoegsel, en past de citaties aan om overeen te komen met het aantal zoekresultaten.
+
+        Args:
+            conv: Een conversatie-object met een dlg_history attribuut dat Turn-objecten bevat.
+
+        Returns:
+            Het opgeschoonde conversatie-object.
+        """
         for turn in conv.dlg_history:
             if "References:" in turn.agent_utterance:
                 turn.agent_utterance = turn.agent_utterance[
@@ -447,8 +493,18 @@ class ArticleTextProcessing:
 
     @staticmethod
     def clean_up_outline(outline, topic=""):
+        """
+        Schoont een outline op door onnodige secties te verwijderen en de structuur te verbeteren.
+
+        Args:
+            outline (str): De ruwe outline tekst.
+            topic (str, optional): Het hoofdonderwerp van de outline. Standaard is een lege string.
+
+        Returns:
+            str: De opgeschoonde outline.
+        """
         output_lines = []
-        current_level = 0  # To track the current section level
+        current_level = 0  # Om het huidige sectieniveau bij te houden
 
         for line in outline.split("\n"):
             stripped_line = line.strip()
@@ -456,11 +512,11 @@ class ArticleTextProcessing:
             if topic != "" and f"# {topic.lower()}" in stripped_line.lower():
                 output_lines = []
 
-            # Check if the line is a section header
+            # Controleer of de regel een sectiekop is
             if stripped_line.startswith("#"):
                 current_level = stripped_line.count("#")
                 output_lines.append(stripped_line)
-            # Check if the line is a bullet point
+            # Controleer of de regel een opsommingsteken is
             elif stripped_line.startswith("-"):
                 subsection_header = (
                     "#" * (current_level + 1) + " " + stripped_line[1:].strip()
@@ -496,11 +552,18 @@ class ArticleTextProcessing:
 
     @staticmethod
     def clean_up_section(text):
-        """Clean up a section:
-        1. Remove uncompleted sentences (usually due to output token limitation).
-        2. Deduplicate individual groups of citations.
-        3. Remove unnecessary summary."""
+        """
+        Schoont een sectie op:
+        1. Verwijdert onvoltooide zinnen (meestal vanwege outputtokenlimiet).
+        2. Verwijdert dubbele individuele groepen citaties.
+        3. Verwijdert onnodige samenvattingen.
 
+        Args:
+            text (str): De tekst van de sectie die moet worden opgeschoond.
+
+        Returns:
+            str: De opgeschoonde sectietekst.
+        """
         paragraphs = text.split("\n")
         output_paragraphs = []
         summary_sec_flag = False
@@ -526,12 +589,21 @@ class ArticleTextProcessing:
                 continue
             output_paragraphs.append(p)
 
-        # Join with '\n\n' for markdown format.
+        # Voeg samen met '\n\n' voor markdown-formaat.
         return "\n\n".join(output_paragraphs)
 
     @staticmethod
     def update_citation_index(s, citation_map):
-        """Update citation index in the string based on the citation map."""
+        """
+        Werkt de citatie-index in de string bij op basis van de citatie-map.
+
+        Args:
+            s (str): De originele string met citaties.
+            citation_map (dict): Een dictionary die originele citaties mapt naar geünificeerde citaties.
+
+        Returns:
+            str: De string met bijgewerkte citatie-indexen.
+        """
         for original_citation in citation_map:
             s = s.replace(
                 f"[{original_citation}]", f"__PLACEHOLDER_{original_citation}__"
@@ -544,23 +616,23 @@ class ArticleTextProcessing:
     @staticmethod
     def parse_article_into_dict(input_string):
         """
-        Parses a structured text into a nested dictionary. The structure of the text
-        is defined by markdown-like headers (using '#' symbols) to denote sections
-        and subsections. Each section can contain content and further nested subsections.
+        Parseert een gestructureerde tekst naar een geneste dictionary. De structuur van de tekst
+        wordt gedefinieerd door markdown-achtige koppen (met '#'-symbolen) om secties
+        en subsecties aan te duiden. Elke sectie kan inhoud en verdere geneste subsecties bevatten.
 
-        The resulting dictionary captures the hierarchical structure of sections, where
-        each section is represented as a key (the section's title) mapping to a value
-        that is another dictionary. This dictionary contains two keys:
-        - 'content': content of the section
-        - 'subsections': a list of dictionaries, each representing a nested subsection
-        following the same structure.
+        De resulterende dictionary vangt de hiërarchische structuur van secties, waarbij
+        elke sectie wordt weergegeven als een sleutel (de titel van de sectie) die verwijst naar een waarde
+        die een andere dictionary is. Deze dictionary bevat twee sleutels:
+        - 'content': inhoud van de sectie
+        - 'subsections': een lijst van dictionaries, elk een geneste subsectie vertegenwoordigend
+        die dezelfde structuur volgt.
 
         Args:
-            input_string (str): A string containing the structured text to parse.
+            input_string (str): Een string die de gestructureerde tekst bevat om te parseren.
 
         Returns:
-            A dictionary representing contains the section title as the key, and another dictionary
-        as the value, which includes the 'content' and 'subsections' keys as described above.
+            Een dictionary die de sectietitel als sleutel bevat, en een andere dictionary
+        als waarde, die de sleutels 'content' en 'subsections' bevat zoals hierboven beschreven.
         """
         lines = input_string.split("\n")
         lines = [line for line in lines if line.strip()]
@@ -573,11 +645,11 @@ class ArticleTextProcessing:
                 title = line.strip("# ").strip()
                 new_section = {"content": "", "subsections": {}}
 
-                # Pop from stack until find the parent level
+                # Verwijder van de stack tot het ouder-niveau is gevonden
                 while current_path and current_path[-1][1] >= level:
                     current_path.pop()
 
-                # Append new section to the nearest upper level's subsections
+                # Voeg nieuwe sectie toe aan de subsecties van het dichtstbijzijnde hogere niveau
                 current_path[-1][0]["subsections"][title] = new_section
                 current_path.append((new_section, level))
             else:
@@ -585,39 +657,97 @@ class ArticleTextProcessing:
 
         return root["subsections"]
 
-
 class FileIOHelper:
     @staticmethod
     def dump_json(obj, file_name, encoding="utf-8"):
+        """
+        Slaat een object op als JSON in een bestand.
+
+        Args:
+            obj: Het object om op te slaan.
+            file_name (str): De naam van het bestand om naar te schrijven.
+            encoding (str, optional): De tekencodering om te gebruiken. Standaard is "utf-8".
+        """
         with open(file_name, "w", encoding=encoding) as fw:
             json.dump(obj, fw, default=FileIOHelper.handle_non_serializable)
 
     @staticmethod
     def handle_non_serializable(obj):
-        return "non-serializable contents"  # mark the non-serializable part
+        """
+        Handelt niet-serialiseerbare objecten af voor JSON-dumping.
+
+        Args:
+            obj: Het object dat niet kan worden geserialiseerd.
+
+        Returns:
+            str: Een string die aangeeft dat de inhoud niet-serialiseerbaar is.
+        """
+        return "non-serializable contents"  # markeer het niet-serialiseerbare deel
 
     @staticmethod
     def load_json(file_name, encoding="utf-8"):
+        """
+        Laadt een JSON-bestand en geeft de inhoud terug als een Python-object.
+
+        Args:
+            file_name (str): De naam van het JSON-bestand om te laden.
+            encoding (str, optional): De tekencodering om te gebruiken. Standaard is "utf-8".
+
+        Returns:
+            Het geladen Python-object uit het JSON-bestand.
+        """
         with open(file_name, "r", encoding=encoding) as fr:
             return json.load(fr)
 
     @staticmethod
     def write_str(s, path):
+        """
+        Schrijft een string naar een bestand.
+
+        Args:
+            s (str): De string om te schrijven.
+            path (str): Het pad naar het bestand om naar te schrijven.
+        """
         with open(path, "w") as f:
             f.write(s)
 
     @staticmethod
     def load_str(path):
+        """
+        Laadt de inhoud van een bestand als een string.
+
+        Args:
+            path (str): Het pad naar het bestand om te lezen.
+
+        Returns:
+            str: De inhoud van het bestand als een string.
+        """
         with open(path, "r") as f:
             return "\n".join(f.readlines())
 
     @staticmethod
     def dump_pickle(obj, path):
+        """
+        Slaat een object op in een pickle-bestand.
+
+        Args:
+            obj: Het object om op te slaan.
+            path (str): Het pad naar het pickle-bestand om naar te schrijven.
+        """
         with open(path, "wb") as f:
             pickle.dump(obj, f)
 
     @staticmethod
     def load_pickle(path):
+        """
+        Laadt een object uit een pickle-bestand.
+
+        Args:
+            path (str): Het pad naar het pickle-bestand om te laden.
+
+        Returns:
+            Het geladen object uit het pickle-bestand.
+        """
         with open(path, "rb") as f:
             return pickle.load(f)
 
@@ -704,6 +834,16 @@ class WebPageHelper:
 
 
 def user_input_appropriateness_check(user_input):
+    """
+    Controleert of de gebruikersinvoer geschikt is voor verwerking door de kenniscuratie-engine.
+    
+    Args:
+        user_input (str): De door de gebruiker ingevoerde tekst.
+    
+    Returns:
+        str: "Approved" als de invoer geschikt is, anders een foutmelding.
+    """
+    # Initialiseer het OpenAI-model voor de geschiktheidscontrole
     my_openai_model = OpenAIModel(
         api_key=os.getenv("OPENAI_API_KEY"),
         api_provider="openai",
@@ -713,37 +853,44 @@ def user_input_appropriateness_check(user_input):
         top_p=0.9,
     )
 
+    # Controleer de lengte van de invoer
     if len(user_input.split()) > 20:
-        return "The input is too long. Please make your input topic more concise!"
+        return "De invoer is te lang. Maak je onderwerp alstublieft beknopter!"
 
+    # Controleer op ongeldige tekens
     if not re.match(r'^[a-zA-Z0-9\s\-"\,\.?\']*$', user_input):
-        return "The input contains invalid characters. The input should only contain a-z, A-Z, 0-9, space, -/\"/,./?/'."
+        return "De invoer bevat ongeldige tekens. De invoer mag alleen a-z, A-Z, 0-9, spatie, -/\"/,./?/' bevatten."
 
-    prompt = f"""Here is a topic input into a knowledge curation engine that can write a Wikipedia-like article for the topic. Please judge whether it is appropriate or not for the engine to curate information for this topic based on English search engine. The following types of inputs are inappropriate:
-1. Inputs that may be related to illegal, harmful, violent, racist, or sexual purposes.
-2. Inputs that are given using languages other than English. Currently, the engine can only support English.
-3. Inputs that are related to personal experience or personal information. Currently, the engine can only use information from the search engine.
-4. Inputs that are not aimed at topic research or inquiry. For example, asks requiring detailed execution, such as calculations, programming, or specific service searches fall outside the engine's scope of capabilities.
-If the topic is appropriate for the engine to process, output "Yes."; otherwise, output "No. The input violates reason [1/2/3/4]".
-User input: {user_input}"""
+    # Stel de prompt op voor het OpenAI-model
+    prompt = f"""Hier is een onderwerp ingevoerd in een kenniscuratie-engine die een Wikipedia-achtig artikel kan schrijven over het onderwerp. Beoordeel of het al dan niet geschikt is voor de engine om informatie te verzamelen over dit onderwerp op basis van een Engelstalige zoekmachine. De volgende soorten invoer zijn ongeschikt:
+1. Invoer die mogelijk verband houdt met illegale, schadelijke, gewelddadige, racistische of seksuele doeleinden.
+2. Invoer in andere talen dan Engels. Momenteel ondersteunt de engine alleen Engels.
+3. Invoer die betrekking heeft op persoonlijke ervaringen of persoonlijke informatie. Momenteel kan de engine alleen informatie uit de zoekmachine gebruiken.
+4. Invoer die niet gericht is op onderzoek of ondervraging van een onderwerp. Bijvoorbeeld, vragen die gedetailleerde uitvoering vereisen, zoals berekeningen, programmeren of specifieke zoekopdrachten naar diensten, vallen buiten de mogelijkheden van de engine.
+Als het onderwerp geschikt is voor verwerking door de engine, geef dan "Yes." als uitvoer; anders, geef "No. The input violates reason [1/2/3/4]" als uitvoer.
+Gebruikersinvoer: {user_input}"""
+
+    # Definieer foutmeldingen voor verschillende redenen van afwijzing
     reject_reason_info = {
-        1: "Sorry, this input may be related to sensitive topics. Please try another topic. "
-        "(Our input filtering uses OpenAI GPT-4o-mini, which may result in false positives. "
-        "We apologize for any inconvenience.)",
-        2: "Sorry, the current engine can only support English. Please try another topic. "
-        "(Our input filtering uses OpenAI GPT-4o-mini, which may result in false positives. "
-        "We apologize for any inconvenience.)",
-        3: "Sorry, the current engine cannot process topics related to personal experience. Please try another topic. "
-        "(Our input filtering uses OpenAI GPT-4o-mini, which may result in false positives. "
-        "We apologize for any inconvenience.)",
-        4: "Sorry, STORM cannot follow arbitrary instruction. Please input a topic you want to learn about. "
-        "(Our input filtering uses OpenAI GPT-4o-mini, which may result in false positives. "
-        "We apologize for any inconvenience.)",
+        1: "Sorry, deze invoer kan betrekking hebben op gevoelige onderwerpen. Probeer een ander onderwerp. "
+        "(Onze invoerfiltering gebruikt OpenAI GPT-4o-mini, wat kan leiden tot valse positieven. "
+        "Onze excuses voor het ongemak.)",
+        2: "Sorry, de huidige engine ondersteunt alleen Engels. Probeer een ander onderwerp. "
+        "(Onze invoerfiltering gebruikt OpenAI GPT-4o-mini, wat kan leiden tot valse positieven. "
+        "Onze excuses voor het ongemak.)",
+        3: "Sorry, de huidige engine kan geen onderwerpen verwerken die betrekking hebben op persoonlijke ervaringen. Probeer een ander onderwerp. "
+        "(Onze invoerfiltering gebruikt OpenAI GPT-4o-mini, wat kan leiden tot valse positieven. "
+        "Onze excuses voor het ongemak.)",
+        4: "Sorry, STORM kan geen willekeurige instructies volgen. Voer een onderwerp in waarover je wilt leren. "
+        "(Onze invoerfiltering gebruikt OpenAI GPT-4o-mini, wat kan leiden tot valse positieven. "
+        "Onze excuses voor het ongemak.)",
     }
 
     try:
+        # Vraag het OpenAI-model om een beoordeling
         response = my_openai_model(prompt)[0].replace("[", "").replace("]", "")
         if response.startswith("No"):
+            # Zoek naar de reden van afwijzing in de respons
             match = regex.search(r"reason\s(\d+)", response)
             if match:
                 reject_reason = int(match.group(1))
@@ -751,16 +898,29 @@ User input: {user_input}"""
                     return reject_reason_info[reject_reason]
                 else:
                     return (
-                        "Sorry, the input is inappropriate. Please try another topic!"
+                        "Sorry, de invoer is ongeschikt. Probeer een ander onderwerp!"
                     )
-            return "Sorry, the input is inappropriate. Please try another topic!"
+            return "Sorry, de invoer is ongeschikt. Probeer een ander onderwerp!"
 
     except Exception as e:
-        return "Sorry, the input is inappropriate. Please try another topic!"
+        # Vang eventuele fouten op en retourneer een algemene foutmelding
+        return "Sorry, de invoer is ongeschikt. Probeer een ander onderwerp!"
+    
+    # Als er geen problemen zijn gevonden, keur de invoer goed
     return "Approved"
 
 
 def purpose_appropriateness_check(user_input):
+    """
+    Controleert of het opgegeven doel geschikt is voor het gebruik van de rapportgeneratieservice.
+    
+    Args:
+        user_input (str): Het door de gebruiker opgegeven doel.
+    
+    Returns:
+        str: "Approved" als het doel geldig is, anders een verzoek om meer uitleg.
+    """
+    # Initialiseer het OpenAI-model voor de doelgeschiktheidscontrole
     my_openai_model = OpenAIModel(
         api_key=os.getenv("OPENAI_API_KEY"),
         api_provider="openai",
@@ -770,20 +930,69 @@ def purpose_appropriateness_check(user_input):
         top_p=0.9,
     )
 
+    # Stel de prompt op voor het OpenAI-model
     prompt = f"""
-    Here is a purpose input into a report generation engine that can create a long-form report on any topic of interest. 
-    Please judge whether the provided purpose is valid for using this service. 
-    Try to judge if given purpose is non-sense like random words or just try to get around the sanity check.
-    You should not make the rule too strict.
+    Hier is een doelinvoer voor een rapportgeneratie-engine die een uitgebreid rapport kan maken over elk onderwerp van interesse. 
+    Beoordeel of het opgegeven doel geldig is voor het gebruik van deze service. 
+    Probeer te beoordelen of het gegeven doel onzin is, zoals willekeurige woorden of een poging om de gezondheidscontrole te omzeilen.
+    Je moet de regel niet te streng maken.
     
-    If the purpose is valid, output "Yes."; otherwise, output "No" followed by reason.
-    User input: {user_input}
+    Als het doel geldig is, geef dan "Yes." als uitvoer; anders, geef "No" gevolgd door de reden.
+    Gebruikersinvoer: {user_input}
     """
     try:
+        # Vraag het OpenAI-model om een beoordeling
         response = my_openai_model(prompt)[0].replace("[", "").replace("]", "")
         if response.startswith("No"):
-            return "Please provide a more detailed explanation on your purpose of requesting this article."
+            return "Geef alstublieft een meer gedetailleerde uitleg over uw doel voor het aanvragen van dit artikel."
 
     except Exception as e:
-        return "Please provide a more detailed explanation on your purpose of requesting this article."
+        # Vang eventuele fouten op en retourneer een verzoek om meer uitleg
+        return "Geef alstublieft een meer gedetailleerde uitleg over uw doel voor het aanvragen van dit artikel."
+    
+    # Als er geen problemen zijn gevonden, keur het doel goed
+    return "Approved"
+
+
+def purpose_appropriateness_check(user_input):
+    """
+    Controleert of het opgegeven doel geschikt is voor het gebruik van de rapportgeneratieservice.
+    
+    Args:
+        user_input (str): Het door de gebruiker opgegeven doel.
+    
+    Returns:
+        str: "Approved" als het doel geldig is, anders een verzoek om meer uitleg.
+    """
+    # Initialiseer het OpenAI-model voor de doelgeschiktheidscontrole
+    my_openai_model = OpenAIModel(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        api_provider="openai",
+        model="gpt-4o-mini-2024-07-18",
+        max_tokens=10,
+        temperature=0.0,
+        top_p=0.9,
+    )
+
+    # Stel de prompt op voor het OpenAI-model
+    prompt = f"""
+    Hier is een doelinvoer voor een rapportgeneratie-engine die een uitgebreid rapport kan maken over elk onderwerp van interesse. 
+    Beoordeel of het opgegeven doel geldig is voor het gebruik van deze service. 
+    Probeer te beoordelen of het gegeven doel onzin is, zoals willekeurige woorden of een poging om de gezondheidscontrole te omzeilen.
+    Je moet de regel niet te streng maken.
+    
+    Als het doel geldig is, geef dan "Yes." als uitvoer; anders, geef "No" gevolgd door de reden.
+    Gebruikersinvoer: {user_input}
+    """
+    try:
+        # Vraag het OpenAI-model om een beoordeling
+        response = my_openai_model(prompt)[0].replace("[", "").replace("]", "")
+        if response.startswith("No"):
+            return "Geef alstublieft een meer gedetailleerde uitleg over uw doel voor het aanvragen van dit artikel."
+
+    except Exception as e:
+        # Vang eventuele fouten op en retourneer een verzoek om meer uitleg
+        return "Geef alstublieft een meer gedetailleerde uitleg over uw doel voor het aanvragen van dit artikel."
+    
+    # Als er geen problemen zijn gevonden, keur het doel goed
     return "Approved"

@@ -1,10 +1,10 @@
 """
-This module handles question generation within the Co-STORM framework, specifically designed to support the Moderator role.
+Deze module behandelt vraag-generatie binnen het Co-STORM framework, specifiek ontworpen om de Moderator-rol te ondersteunen.
 
-The Moderator generates insightful, thought-provoking questions that introduce new directions into the conversation. 
-By leveraging uncited or unused snippets of information retrieved during the discussion, the Moderator ensures the conversation remains dynamic and avoids repetitive or overly niche topics.
+De Moderator genereert inzichtelijke, prikkelende vragen die nieuwe richtingen in het gesprek introduceren.
+Door gebruik te maken van ongebruikte of niet-geciteerde informatiesnippers die tijdens de discussie zijn opgehaald, zorgt de Moderator ervoor dat het gesprek dynamisch blijft en herhalingen of te specifieke onderwerpen vermijdt.
 
-For more detailed information, refer to Section 3.5 of the Co-STORM paper: https://www.arxiv.org/pdf/2408.15232.
+Voor meer gedetailleerde informatie, zie Sectie 3.5 van het Co-STORM paper: https://www.arxiv.org/pdf/2408.15232.
 """
 
 import dspy
@@ -21,52 +21,53 @@ from ...interface import Information
 
 
 class KnowledgeBaseSummmary(dspy.Signature):
-    """Your job is to give brief summary of what's been discussed in a roundtable conversation. Contents are themantically organized into hierarchical sections.
-    You will be presented with these sections where "#" denotes level of section.
+    """Je taak is om een korte samenvatting te geven van wat er besproken is in een rondetafelgesprek. 
+    De inhoud is thematisch georganiseerd in hiërarchische secties.
+    Je krijgt deze secties te zien waarbij "#" het niveau van de sectie aangeeft.
     """
 
-    topic = dspy.InputField(prefix="topic: ", format=str)
-    structure = dspy.InputField(prefix="Tree structure: \n", format=str)
-    output = dspy.OutputField(prefix="Now give brief summary:\n", format=str)
+    topic = dspy.InputField(prefix="onderwerp: ", format=str)
+    structure = dspy.InputField(prefix="Boomstructuur: \n", format=str)
+    output = dspy.OutputField(prefix="Geef nu een korte samenvatting:\n", format=str)
 
 
 class ConvertUtteranceStyle(dspy.Signature):
     """
-    You are an invited speaker in the round table conversation.
-    Your task is to make the question or the response more conversational and engaging to facilicate the flow of conversation.
-    Note that this is ongoing conversation so no need to have welcoming and concluding words. Previous speaker utterance is provided only for making the conversation more natural.
-    Note that do not hallucinate and keep the citation index like [1] as it is. Also,
+    Je bent een uitgenodigd spreker in het rondetafelgesprek.
+    Je taak is om de vraag of het antwoord meer conversationeel en boeiend te maken om de gespreksflow te bevorderen.
+    Merk op dat dit een lopend gesprek is, dus geen behoefte aan welkomst- en afsluitende woorden. De uitspraak van de vorige spreker wordt alleen gegeven om het gesprek natuurlijker te maken.
+    Let op dat je niet hallucineert en houd de citaatindex zoals [1] intact.
     """
 
-    expert = dspy.InputField(prefix="You are inivited as: ", format=str)
+    expert = dspy.InputField(prefix="Je bent uitgenodigd als: ", format=str)
     action = dspy.InputField(
-        prefix="You want to contribute to conversation by: ", format=str
+        prefix="Je wilt bijdragen aan het gesprek door: ", format=str
     )
-    prev = dspy.InputField(prefix="Previous speaker said: ", format=str)
+    prev = dspy.InputField(prefix="De vorige spreker zei: ", format=str)
     content = dspy.InputField(
-        prefix="Question or response you want to say: ", format=str
+        prefix="Vraag of antwoord dat je wilt zeggen: ", format=str
     )
     utterance = dspy.OutputField(
-        prefix="Your utterance (keep the information as much as you can with citations, prefer shorter answers without loss of information): ",
+        prefix="Jouw uitspraak (behoud zoveel mogelijk informatie met citaten, geef de voorkeur aan kortere antwoorden zonder informatieverlies): ",
         format=str,
     )
 
 
 class GroundedQuestionGeneration(dspy.Signature):
-    """Your job is to find next discussion focus in a roundtable conversation. You will be given previous conversation summary and some information that might assist you discover new discussion focus.
-    Note that the new discussion focus should bring new angle and perspective to the discussion and avoid repetition. The new discussion focus should be grounded on the available information and push the boundaries of the current discussion for broader exploration.
-    The new discussion focus should have natural flow from last utterance in the conversation.
-    Use [1][2] in line to ground your question.
+    """Je taak is om de volgende discussiefocus in een rondetafelgesprek te vinden. Je krijgt een samenvatting van het vorige gesprek en wat informatie die je kan helpen bij het ontdekken van een nieuwe discussiefocus.
+    Let op dat de nieuwe discussiefocus een nieuwe invalshoek en perspectief in de discussie moet brengen en herhaling moet vermijden. De nieuwe discussiefocus moet gebaseerd zijn op de beschikbare informatie en de grenzen van de huidige discussie verleggen voor een bredere verkenning.
+    De nieuwe discussiefocus moet een natuurlijke flow hebben vanaf de laatste uitspraak in het gesprek.
+    Gebruik [1][2] in de tekst om je vraag te onderbouwen.
     """
 
-    topic = dspy.InputField(prefix="topic: ", format=str)
-    summary = dspy.InputField(prefix="Discussion history: \n", format=str)
-    information = dspy.InputField(prefix="Available information: \n", format=str)
+    topic = dspy.InputField(prefix="onderwerp: ", format=str)
+    summary = dspy.InputField(prefix="Discussiegeschiedenis: \n", format=str)
+    information = dspy.InputField(prefix="Beschikbare informatie: \n", format=str)
     last_utterance = dspy.InputField(
-        prefix="Last utterance in the conversation: \n", format=str
+        prefix="Laatste uitspraak in het gesprek: \n", format=str
     )
     output = dspy.OutputField(
-        prefix="Now give next discussion focus in the format of one sentence question:\n",
+        prefix="Geef nu de volgende discussiefocus in de vorm van een vraag van één zin:\n",
         format=str,
     )
 
@@ -85,27 +86,35 @@ class GroundedQuestionGenerationModule(dspy.Module):
         last_conv_turn: ConversationTurn,
         unused_snippets: List[Information],
     ):
+        # Formatteer ongebruikte informatiesnippers en maak een mapping van index naar informatie
         information, index_to_information_mapping = format_search_results(
             unused_snippets, info_max_num_words=1000
         )
+        # Haal de samenvatting op van de kennisbank
         summary = knowledge_base.get_knowledge_base_summary()
+        # Extraheer de laatste uitspraak zonder citaten
         last_utterance, _ = extract_and_remove_citations(last_conv_turn.utterance)
+        
         with dspy.settings.context(lm=self.engine, show_guidelines=False):
+            # Genereer een nieuwe discussiefocus
             raw_utterance = self.gen_focus(
                 topic=topic,
                 summary=summary,
                 information=information,
                 last_utterance=last_utterance,
             ).output
+            # Verfijn de stijl van de gegenereerde uitspraak
             utterance = self.polish_style(
-                expert="Roundtable conversation moderator",
-                action="Raising a new question by natural transit from previous utterance.",
+                expert="Moderator van het rondetafelgesprek",
+                action="Een nieuwe vraag stellen door natuurlijk over te gaan van de vorige uitspraak.",
                 prev=keep_first_and_last_paragraph(last_utterance),
                 content=raw_utterance,
             ).utterance
+            # Extraheer geciteerde zoekresultaten uit de verfijnde uitspraak
             cited_searched_results = extract_cited_storm_info(
                 response=utterance, index_to_storm_info=index_to_information_mapping
             )
+            # Retourneer de gegenereerde uitspraak met bijbehorende informatie
             return dspy.Prediction(
                 raw_utterance=raw_utterance,
                 utterance=utterance,

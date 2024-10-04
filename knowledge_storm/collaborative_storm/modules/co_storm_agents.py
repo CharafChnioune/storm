@@ -1,3 +1,4 @@
+# Importeer benodigde modules en types
 import dspy
 from itertools import zip_longest
 import numpy as np
@@ -20,23 +21,23 @@ from ...logging_wrapper import LoggingWrapper
 if TYPE_CHECKING:
     from ..engine import RunnerArgument
 
-
+# CoStormExpert klasse: representeert een expert agent in het Co-STORM framework
 class CoStormExpert(Agent):
     """
-    Represents an expert agent in the Co-STORM framework.
-    The `CoStormExpert` is a specialized type of `Agent` that is tasked with participating in roundtable discussions within the Co-STORM system.
-    The expert uses language models to generate action plans, answer questions, and polish its utterances based on the current conversation history and knowledge base.
-      It interacts with modules for action planning and question answering grounding on provided retrieval models.
+    Vertegenwoordigt een expert agent in het Co-STORM framework.
+    De `CoStormExpert` is een gespecialiseerd type `Agent` dat deelneemt aan rondetafelgesprekken binnen het Co-STORM systeem.
+    De expert gebruikt taalmodellen om actieplannen te genereren, vragen te beantwoorden en zijn uitspraken te verfijnen op basis van de huidige gespreksgeschiedenis en kennisbank.
+    Het interacteert met modules voor actieplanning en vraagbeantwoording, gebaseerd op de verstrekte retrievalmodellen.
 
     Args:
-        topic (str): The conversation topic that the expert specializes in.
-        role_name (str): The perspective of the expert's role (e.g. AI enthusiast, drug discovery expert, etc.)
-        role_description (str): A description of the perspective of the experts
-        lm_config (LMConfigs): Configuration for the language models
+        topic (str): Het gespreksonderwerp waarin de expert gespecialiseerd is.
+        role_name (str): Het perspectief van de rol van de expert (bijv. AI-enthousiasteling, expert in medicijnontwikkeling, etc.)
+        role_description (str): Een beschrijving van het perspectief van de expert
+        lm_config (LMConfigs): Configuratie voor de taalmodellen
         runner_argument (RunnerArgument): Co-STORM runner argument
-        logging_wrapper (LoggingWrapper): An instance of `LoggingWrapper` to log events.
-        rm (Optional[dspy.Retrieve], optional): A retrieval module used for fetching external knowledge or context.
-        callback_handler (BaseCallbackHandler, optional): Handles log message printing
+        logging_wrapper (LoggingWrapper): Een instantie van `LoggingWrapper` om gebeurtenissen te loggen.
+        rm (Optional[dspy.Retrieve], optional): Een retrievalmodule gebruikt voor het ophalen van externe kennis of context.
+        callback_handler (BaseCallbackHandler, optional): Handelt het printen van logberichten af
     """
 
     def __init__(
@@ -62,6 +63,7 @@ class CoStormExpert(Agent):
     def _get_costorm_expert_utterance_generator(
         self, rm: Optional[dspy.Retrieve] = None
     ):
+        # Initialiseert en retourneert een CoStormExpertUtteranceGenerationModule
         return CoStormExpertUtteranceGenerationModule(
             action_planning_lm=self.lm_config.discourse_manage_lm,
             utterance_polishing_lm=self.lm_config.utterance_polishing_lm,
@@ -80,6 +82,7 @@ class CoStormExpert(Agent):
         knowledge_base: KnowledgeBase,
         conversation_history: List[ConversationTurn],
     ):
+        # Genereert een uiting op basis van de kennisbank en gespreksgeschiedenis
         with self.logging_wrapper.log_event(
             "CoStormExpert generate utternace: get knowledge base summary"
         ):
@@ -106,13 +109,13 @@ class CoStormExpert(Agent):
             )
         return conv_turn
 
-
+# SimulatedUser klasse: simuleert gebruikersinteractie op basis van gegeven intentie
 class SimulatedUser(Agent):
     """
-    Simulated Users is a special type of Agent in Co-STORM that simulates real user interaction behavior based on the given intent.
+    Gesimuleerde Gebruikers is een speciaal type Agent in Co-STORM dat echt gebruikersinteractiegedrag simuleert op basis van de gegeven intentie.
 
-    This class can be used for automatic experiments.
-    For more information, please refer to Section 3.4 of Co-STORM paper: https://www.arxiv.org/pdf/2408.15232
+    Deze klasse kan worden gebruikt voor automatische experimenten.
+    Voor meer informatie, zie Sectie 3.4 van het Co-STORM paper: https://www.arxiv.org/pdf/2408.15232
     """
 
     def __init__(
@@ -141,6 +144,7 @@ class SimulatedUser(Agent):
         knowledge_base: KnowledgeBase,
         conversation_history: List[ConversationTurn],
     ):
+        # Genereert een gesimuleerde gebruikersuiting
         assert (
             self.intent is not None and self.intent
         ), "Simulate user intent is not initialized."
@@ -155,15 +159,15 @@ class SimulatedUser(Agent):
             role="Guest", raw_utterance=utterance, utterance_type="Original Question"
         )
 
-
+# Moderator klasse: injecteert nieuwe perspectieven in het gesprek
 class Moderator(Agent):
     """
-    The moderator's role in the Co-STORM framework is to inject new perspectives into the conversation to avoid stagnation, repetition, or overly niche discussions.
-    This is achieved by generating questions based on unused, uncited snippets of information retrieved since the last moderator's turn.
-    The selected information is reranked according to its relevance to the conversation topic and its dissimilarity to the original question.
-    The resulting top-ranked snippets are used to generate an informed question to be presented to the conversation participants.
+    De rol van de moderator in het Co-STORM framework is om nieuwe perspectieven in het gesprek te injecteren om stagnatie, herhaling of te niche discussies te voorkomen.
+    Dit wordt bereikt door vragen te genereren op basis van ongebruikte, niet-geciteerde informatiesnippets die zijn opgehaald sinds de laatste beurt van de moderator.
+    De geselecteerde informatie wordt opnieuw gerangschikt volgens de relevantie voor het gespreksonderwerp en de ongelijkheid met de oorspronkelijke vraag.
+    De resulterende top-gerangschikte snippets worden gebruikt om een geïnformeerde vraag te genereren die aan de gespreksdeelnemers wordt voorgelegd.
 
-    For more information, please refer to Section 3.5 of Co-STORM paper: https://www.arxiv.org/pdf/2408.15232
+    Voor meer informatie, zie Sectie 3.5 van het Co-STORM paper: https://www.arxiv.org/pdf/2408.15232
     """
 
     def __init__(
@@ -188,7 +192,8 @@ class Moderator(Agent):
     def _get_conv_turn_unused_information(
         self, conv_turn: ConversationTurn, knowledge_base: KnowledgeBase
     ):
-        # extract all snippets from raw retrieved information
+        # Haalt ongebruikte informatie op uit de conversatiebeurt
+        # ... (code voor het extraheren en sorteren van ongebruikte snippets)
         raw_retrieved_info: List[Information] = conv_turn.raw_retrieved_info
         raw_retrieved_single_snippet_info: List[Information] = []
         for info in raw_retrieved_info:
@@ -256,6 +261,8 @@ class Moderator(Agent):
         conversation_history: List[ConversationTurn],
         last_n_conv_turn: int = 2,
     ):
+        # Haalt gesorteerde ongebruikte snippets op uit de laatste N conversatiebeurten
+        # ... (code voor het ophalen en sorteren van ongebruikte snippets)
         # get last N conv turn and batch encode all related strings
         considered_conv_turn = []
         batch_snippets = [self.topic]
@@ -293,6 +300,7 @@ class Moderator(Agent):
         knowledge_base: KnowledgeBase,
         conversation_history: List[ConversationTurn],
     ):
+        # Genereert een uiting (vraag) op basis van ongebruikte informatie
         with self.logging_wrapper.log_event(
             "Moderator generate utternace: get unused snippets"
         ):
@@ -316,13 +324,13 @@ class Moderator(Agent):
             cited_info=generated_question.cited_info,
         )
 
-
+# PureRAGAgent klasse: handelt alleen grounded vraag generatie af
 class PureRAGAgent(Agent):
     """
-    PureRAGAgent only handles grounded question generation by retrieving information from the retriever based on the query.
-    It does not utilize any other information besides the query itself.
+    PureRAGAgent handelt alleen grounded vraag generatie af door informatie op te halen uit de retriever op basis van de query.
+    Het gebruikt geen andere informatie behalve de query zelf.
 
-    It's designed for Co-STORM paper baseline comparison.
+    Het is ontworpen voor Co-STORM paper baseline vergelijking.
     """
 
     def __init__(
@@ -348,6 +356,7 @@ class PureRAGAgent(Agent):
         )
 
     def _gen_utterance_from_question(self, question: str):
+        # Genereert een uiting op basis van een gegeven vraag
         grounded_answer = self.grounded_question_answering_module(
             topic=self.topic,
             question=question,
@@ -366,6 +375,7 @@ class PureRAGAgent(Agent):
         return conversation_turn
 
     def generate_topic_background(self):
+        # Genereert achtergrondinformatie over het onderwerp
         return self._gen_utterance_from_question(self.topic)
 
     def generate_utterance(
@@ -373,6 +383,7 @@ class PureRAGAgent(Agent):
         knowledge_base: KnowledgeBase,
         conversation_history: List[ConversationTurn],
     ):
+        # Genereert een uiting op basis van de laatste vraag in de gespreksgeschiedenis
         with self.logging_wrapper.log_event(
             "PureRAGAgent generate utternace: generate utterance"
         ):

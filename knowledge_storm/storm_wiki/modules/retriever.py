@@ -6,8 +6,11 @@ import dspy
 from ...interface import Retriever, Information
 from ...utils import ArticleTextProcessing
 
-# Internet source restrictions according to Wikipedia standard:
+# Internetbronbeperkingen volgens Wikipedia-standaard:
 # https://en.wikipedia.org/wiki/Wikipedia:Reliable_sources/Perennial_sources
+
+# Lijsten van onbetrouwbare, verouderde en geblokkeerde bronnen
+# Deze worden gebruikt om de betrouwbaarheid van URL's te controleren
 GENERALLY_UNRELIABLE = {
     "112_Ukraine",
     "Ad_Fontes_Media",
@@ -150,6 +153,7 @@ GENERALLY_UNRELIABLE = {
     "YouTube",
     "ZDNet",
 }
+
 DEPRECATED = {
     "Al_Mayadeen",
     "ANNA_News",
@@ -199,6 +203,7 @@ DEPRECATED = {
     "WorldNetDaily",
     "Zero_Hedge",
 }
+
 BLACKLISTED = {
     "Advameg",
     "bestgore.com",
@@ -223,8 +228,17 @@ BLACKLISTED = {
 
 
 def is_valid_wikipedia_source(url):
+    """
+    Controleert of een gegeven URL een geldige Wikipedia-bron is.
+    
+    Args:
+        url (str): De te controleren URL
+    
+    Returns:
+        bool: True als de URL geldig is, False anders
+    """
     parsed_url = urlparse(url)
-    # Check if the URL is from a reliable domain
+    # Controleer of de URL afkomstig is van een betrouwbaar domein
     combined_set = GENERALLY_UNRELIABLE | DEPRECATED | BLACKLISTED
     for domain in combined_set:
         if domain in parsed_url.netloc:

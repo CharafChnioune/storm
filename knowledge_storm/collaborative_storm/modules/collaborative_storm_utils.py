@@ -1,3 +1,6 @@
+# Dit bestand bevat hulpfuncties voor de Collaborative Storm module
+# Het importeert verschillende modules en definieert type hints voor type checking
+
 import dspy
 import os
 import re
@@ -14,17 +17,17 @@ from ...rm import BingSearch
 
 def extract_storm_info_snippet(info: Information, snippet_index: int) -> Information:
     """
-    Constructs a new Information instance with only the specified snippet index.
+    Construeert een nieuwe Information instantie met alleen de opgegeven snippet index.
 
     Args:
-        storm_info (Information): The original Information instance.
-        snippet_index (int): The index of the snippet to retain.
+        storm_info (Information): De originele Information instantie.
+        snippet_index (int): De index van de snippet om te behouden.
 
     Returns:
-        Information: A new Information instance with only the specified snippet.
+        Information: Een nieuwe Information instantie met alleen de opgegeven snippet.
     """
     if snippet_index < 0 or snippet_index >= len(info.snippets):
-        raise ValueError("Snippet index out of range")
+        raise ValueError("Snippet index buiten bereik")
 
     new_snippets = [info.snippets[snippet_index]]
     new_storm_info = Information(
@@ -39,18 +42,18 @@ def format_search_results(
     mode: str = "brief",
 ) -> Tuple[str, Dict[int, Information]]:
     """
-    Constructs a string from a list of search results with a specified word limit and returns a mapping of indices to Information.
+    Construeert een string van zoekresultaten met een opgegeven woordlimiet en retourneert een mapping van indices naar Information.
 
     Args:
-        searched_results (List[Information]): List of Information objects to process.
-        info_max_num_words (int, optional): Maximum number of words allowed in the output string. Defaults to 1000.
-        mode (str, optional): Mode of summarization. 'brief' takes only the first snippet of each Information.
-                                'extensive' adds snippets iteratively until the word limit is reached. Defaults to 'brief'.
+        searched_results (List[Information]): Lijst van Information objecten om te verwerken.
+        info_max_num_words (int, optional): Maximum aantal woorden toegestaan in de output string. Standaard 1000.
+        mode (str, optional): Modus van samenvatting. 'brief' neemt alleen de eerste snippet van elke Information.
+                              'extensive' voegt snippets iteratief toe tot de woordlimiet is bereikt. Standaard 'brief'.
 
     Returns:
         Tuple[str, Dict[int, Information]]:
-            - Formatted string with search results, constrained by the word limit.
-            - Dictionary mapping indices to the corresponding Information objects.
+            - Geformatteerde string met zoekresultaten, beperkt door de woordlimiet.
+            - Dictionary die indices mapt naar de corresponderende Information objecten.
     """
     total_length = 0
 
@@ -87,14 +90,14 @@ def extract_cited_storm_info(
     response: str, index_to_storm_info: Dict[int, Information]
 ) -> Dict[int, Information]:
     """
-    Extracts a sub-dictionary of Information instances that are cited in the response.
+    Extraheert een sub-dictionary van Information instanties die geciteerd zijn in de response.
 
     Args:
-        response (str): The response string containing inline citations like [1], [2], etc.
-        index_to_storm_info (Dict[int, Information]): A dictionary mapping indices to Information instances.
+        response (str): De response string met inline citaties zoals [1], [2], etc.
+        index_to_storm_info (Dict[int, Information]): Een dictionary die indices mapt naar Information instanties.
 
     Returns:
-        Dict[int, Information]: A sub-dictionary with only the indices that appear in the response.
+        Dict[int, Information]: Een sub-dictionary met alleen de indices die voorkomen in de response.
     """
     cited_indices = set(map(int, re.findall(r"\[(\d+)\]", response)))
     cited_storm_info = {
@@ -226,16 +229,22 @@ def clean_up_section(text):
 
 
 def load_api_key(toml_file_path):
+    """
+    Laadt API-sleutels uit een TOML-bestand en zet ze als omgevingsvariabelen.
+
+    Args:
+        toml_file_path (str): Pad naar het TOML-bestand met API-sleutels.
+    """
     try:
         with open(toml_file_path, "r") as file:
             data = toml.load(file)
     except FileNotFoundError:
-        print(f"File not found: {toml_file_path}", file=sys.stderr)
+        print(f"Bestand niet gevonden: {toml_file_path}", file=sys.stderr)
         return
     except toml.TomlDecodeError:
-        print(f"Error decoding TOML file: {toml_file_path}", file=sys.stderr)
+        print(f"Fout bij decoderen van TOML-bestand: {toml_file_path}", file=sys.stderr)
         return
-    # Set environment variables
+    # Zet omgevingsvariabelen
     for key, value in data.items():
         os.environ[key] = str(value)
 
@@ -246,13 +255,29 @@ def _get_answer_question_module_instance(
     logging_wrapper: LoggingWrapper,
     rm: Optional[dspy.Retrieve] = None,
 ):
+    """
+    Creëert en retourneert een instantie van de AnswerQuestionModule.
+
+    Deze functie configureert een retriever en initialiseert een AnswerQuestionModule
+    met de gegeven parameters. Het gebruikt de BingSearch als standaard retriever
+    als er geen specifieke retriever is opgegeven.
+
+    Args:
+        lm_config (LMConfigs): Configuratie voor het taalmodel.
+        runner_argument (RunnerArgument): Argumenten voor de runner.
+        logging_wrapper (LoggingWrapper): Wrapper voor logging.
+        rm (Optional[dspy.Retrieve]): Optionele retriever module.
+
+    Returns:
+        AnswerQuestionModule: Een geïnitialiseerde instantie van AnswerQuestionModule.
+    """
     from .grounded_question_answering import AnswerQuestionModule
 
-    # configure retriever
+    # configureer retriever
     if rm is None:
         rm = BingSearch(k=runner_argument.retrieve_top_k)
     retriever = Retriever(rm=rm, max_thread=runner_argument.max_search_thread)
-    # return AnswerQuestionModule instance
+    # return AnswerQuestionModule instantie
     return AnswerQuestionModule(
         retriever=retriever,
         max_search_queries=runner_argument.max_search_queries,
