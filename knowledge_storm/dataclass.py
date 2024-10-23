@@ -915,7 +915,7 @@ class KnowledgeBase:
         """
         return self.gen_summary_module(self)
 
-    def reogranize(self):
+    def reorganize(self):
         """
         Reorganiseert de kennisbasis door twee hoofdprocessen: top-down uitbreiding en bottom-up opschoning.
 
